@@ -2,8 +2,13 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import dynamic from "next/dynamic";
 import Navbar from "@/components/layout/Navbar";
 import type { FigureType, ScientificField, JournalStyle } from "@/types";
+import { savePlanForWorkspace } from "@/lib/figureStore";
+
+const FigureRenderer = dynamic(() => import("@/components/figures/FigureRenderer"), { ssr: false });
 
 const figureTypes: { value: FigureType; label: string; icon: string; description: string }[] = [
   { value: "graphical-abstract", label: "Graphical Abstract", icon: "🖼", description: "Visual summary of research" },
@@ -53,6 +58,12 @@ interface GeneratedFigure {
   field: string;
   panels: number;
   timestamp: Date;
+  plan?: {
+    title?: string;
+    legend?: string;
+    colorPalette?: string[];
+    panels?: { id: string; label: string; type: string; chartType?: string; description: string; dataContext?: string }[];
+  };
 }
 
 export default function AIFigureStudioPage() {
@@ -64,33 +75,70 @@ export default function AIFigureStudioPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedFigures, setGeneratedFigures] = useState<GeneratedFigure[]>([]);
   const [enhancedPrompt, setEnhancedPrompt] = useState<string | null>(null);
+  const [generateError, setGenerateError] = useState<string | null>(null);
+  const router = useRouter();
 
   const handleGenerate = async () => {
     if (!prompt.trim()) return;
     setIsGenerating(true);
+    setGenerateError(null);
     setEnhancedPrompt(null);
 
-    await new Promise((r) => setTimeout(r, 2200));
+    try {
+      const res = await fetch("/api/ai/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt,
+          figureType,
+          scientificField: field,
+          journalStyle,
+          numPanels,
+        }),
+      });
 
-    const newFigure: GeneratedFigure = {
-      id: `fig-${Date.now()}`,
-      prompt: prompt.slice(0, 80),
-      figureType,
-      field,
-      panels: numPanels,
-      timestamp: new Date(),
-    };
+      const data = await res.json();
 
-    setGeneratedFigures((prev) => [newFigure, ...prev]);
-    setIsGenerating(false);
+      if (!res.ok) {
+        setGenerateError(data.error || "Generation failed");
+        return;
+      }
+
+      const newFigure: GeneratedFigure = {
+        id: `fig-${Date.now()}`,
+        prompt: (data.plan?.title || prompt).slice(0, 80),
+        figureType,
+        field,
+        panels: data.plan?.panels?.length || numPanels,
+        timestamp: new Date(),
+        plan: data.plan,
+      };
+
+      setGeneratedFigures((prev) => [newFigure, ...prev]);
+    } catch (err) {
+      setGenerateError("Network error — is the dev server running?");
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const handleEnhancePrompt = async () => {
     if (!prompt.trim()) return;
-    await new Promise((r) => setTimeout(r, 800));
-    setEnhancedPrompt(
-      prompt + " — showing key molecular components, signaling cascades, and cellular context with publication-quality annotations and statistical validation panels suitable for a high-impact journal submission"
-    );
+    try {
+      const res = await fetch("/api/ai/enhance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt }),
+      });
+      const data = await res.json();
+      if (res.ok && data.enhanced) {
+        setEnhancedPrompt(data.enhanced);
+      }
+    } catch {
+      setEnhancedPrompt(
+        prompt + " — showing key molecular components, signaling cascades, and cellular context with publication-quality annotations suitable for a high-impact journal."
+      );
+    }
   };
 
   const gradients = [
@@ -243,6 +291,14 @@ export default function AIFigureStudioPage() {
               </div>
             </div>
 
+            {/* Error banner */}
+            {generateError && (
+              <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20 text-sm text-red-300">
+                <span className="flex-shrink-0 mt-0.5">⚠</span>
+                <span>{generateError}</span>
+              </div>
+            )}
+
             {/* Generate Button */}
             <button
               onClick={handleGenerate}
@@ -288,29 +344,29 @@ export default function AIFigureStudioPage() {
                 <h3 className="text-sm font-semibold text-white mb-3">Generated Figures</h3>
                 <div className="space-y-3">
                   {generatedFigures.map((fig, i) => (
-                    <div key={fig.id} className="rounded-xl overflow-hidden border border-white/8 hover:border-indigo-500/30 transition-all group">
-                      <div className={`h-28 bg-gradient-to-br ${gradients[i % gradients.length]} flex items-center justify-center`}>
-                        <div className="grid grid-cols-2 gap-2 w-20">
-                          {Array.from({ length: Math.min(fig.panels, 4) }).map((_, pi) => (
-                            <div key={pi} className="aspect-square rounded bg-white/15 border border-white/20 flex items-center justify-center text-xs text-white/60 font-bold">
-                              {String.fromCharCode(65 + pi)}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="p-3 bg-[#0C1020]">
-                        <p className="text-xs font-medium text-zinc-300 mb-1 line-clamp-1">{fig.prompt}…</p>
-                        <div className="flex items-center justify-between">
-                          <span className="text-[10px] text-zinc-600">{fig.panels} panels · {fig.field}</span>
-                          <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Link
-                              href="/workspace"
-                              className="text-[10px] text-indigo-400 hover:text-indigo-300 font-medium"
-                            >
-                              Edit →
-                            </Link>
+                    <div key={fig.id} className="rounded-2xl overflow-hidden border border-white/10 bg-[#0A0E1C]">
+                      {/* Rendered figure panels */}
+                      <div className="p-4">
+                        {fig.plan?.panels?.length ? (
+                          <FigureRenderer plan={fig.plan} compact />
+                        ) : (
+                          <div className={`h-32 bg-gradient-to-br ${gradients[i % gradients.length]} rounded-xl flex items-center justify-center opacity-60`}>
+                            <p className="text-white/60 text-xs">Generating visual…</p>
                           </div>
-                        </div>
+                        )}
+                      </div>
+                      {/* Footer actions */}
+                      <div className="px-4 pb-3 flex items-center justify-between border-t border-white/5 pt-2">
+                        <span className="text-[10px] text-zinc-600">{fig.panels} panels · {fig.field}</span>
+                        <button
+                          onClick={() => {
+                            if (fig.plan) savePlanForWorkspace(fig.plan);
+                            router.push("/workspace");
+                          }}
+                          className="text-[10px] text-indigo-400 hover:text-indigo-300 font-medium transition-colors"
+                        >
+                          Edit in Workspace →
+                        </button>
                       </div>
                     </div>
                   ))}

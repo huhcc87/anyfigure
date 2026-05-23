@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { UserButton, useAuth } from "@clerk/nextjs";
 import { cn } from "@/lib/utils";
 
 const navLinks = [
@@ -15,6 +16,7 @@ const navLinks = [
 export default function Navbar() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { isSignedIn } = useAuth();
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 h-16 border-b border-white/10 bg-[#080C1C]/80 backdrop-blur-xl">
@@ -52,18 +54,26 @@ export default function Navbar() {
 
         {/* CTA */}
         <div className="hidden md:flex items-center gap-3">
-          <Link
-            href="/dashboard"
-            className="text-sm font-medium text-zinc-300 hover:text-white transition-colors"
-          >
-            Dashboard
-          </Link>
-          <Link
-            href="/workspace"
-            className="px-4 py-2 rounded-full text-sm font-semibold bg-gradient-to-r from-indigo-500 to-violet-600 text-white hover:from-indigo-400 hover:to-violet-500 transition-all shadow-lg shadow-indigo-500/25"
-          >
-            Open Studio
-          </Link>
+          {isSignedIn ? (
+            <>
+              <Link href="/dashboard" className="text-sm font-medium text-zinc-300 hover:text-white transition-colors">
+                Dashboard
+              </Link>
+              <Link href="/workspace" className="px-4 py-2 rounded-full text-sm font-semibold bg-gradient-to-r from-indigo-500 to-violet-600 text-white hover:from-indigo-400 hover:to-violet-500 transition-all shadow-lg shadow-indigo-500/25">
+                Open Studio
+              </Link>
+              <UserButton appearance={{ elements: { avatarBox: "w-8 h-8" } }} />
+            </>
+          ) : (
+            <>
+              <Link href="/sign-in" className="text-sm font-medium text-zinc-300 hover:text-white transition-colors">
+                Sign In
+              </Link>
+              <Link href="/sign-up" className="px-4 py-2 rounded-full text-sm font-semibold bg-gradient-to-r from-indigo-500 to-violet-600 text-white hover:from-indigo-400 hover:to-violet-500 transition-all shadow-lg shadow-indigo-500/25">
+                Get Started Free
+              </Link>
+            </>
+          )}
         </div>
 
         {/* Mobile toggle */}
