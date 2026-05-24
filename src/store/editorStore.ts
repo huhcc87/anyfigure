@@ -6,6 +6,9 @@ import type {
   EditorTool,
   HistoryEntry,
 } from "@/types";
+import type { FigurePlan } from "@/components/figures/FigureRenderer";
+import type { WorkspaceSnapshot } from "@/lib/figureStore";
+import { importFigurePlan } from "@/lib/planToEditor";
 import { generateId } from "@/lib/utils";
 
 interface EditorStore {
@@ -55,6 +58,9 @@ interface EditorStore {
   toggleAssetLibrary: () => void;
   toggleAIPanel: () => void;
   reset: () => void;
+  loadFromFigurePlan: (plan: FigurePlan) => void;
+  loadWorkspaceSnapshot: (snapshot: WorkspaceSnapshot) => void;
+  getWorkspaceSnapshot: () => WorkspaceSnapshot;
 }
 
 const defaultLayer: Layer = {
@@ -185,12 +191,22 @@ export const useEditorStore = create<EditorStore>()(
 
     toggleLayerVisibility: (id) => set((state) => {
       const layer = state.layers.find((l) => l.id === id);
-      if (layer) layer.visible = !layer.visible;
+      if (!layer) return;
+      layer.visible = !layer.visible;
+      for (const elId of layer.elements) {
+        const el = state.elements.find((e) => e.id === elId);
+        if (el) el.visible = layer.visible;
+      }
     }),
 
     toggleLayerLock: (id) => set((state) => {
       const layer = state.layers.find((l) => l.id === id);
-      if (layer) layer.locked = !layer.locked;
+      if (!layer) return;
+      layer.locked = !layer.locked;
+      for (const elId of layer.elements) {
+        const el = state.elements.find((e) => e.id === elId);
+        if (el) el.locked = layer.locked;
+      }
     }),
 
     pushHistory: () => set((state) => {
@@ -230,5 +246,91 @@ export const useEditorStore = create<EditorStore>()(
     }),
 
     reset: () => set(() => ({ ...initialState })),
+
+    loadFromFigurePlan: (plan) => {
+      const { elements, canvasWidth, canvasHeight } = importFigurePlan(plan);
+      set((state) => {
+        state.elements = elements;
+        state.canvasWidth = canvasWidth;
+        state.canvasHeight = canvasHeight;
+        state.projectName = plan.title?.slice(0, 60) || "Untitled Figure";
+        state.selectedIds = [];
+        state.zoom = 1;
+        state.panX = 0;
+        state.panY = 0;
+
+        const hasTemplateParts = elements.some((e) => e.partRole === "part");
+
+        const groups: { name: string; ids: string[]; locked?: boolean; visible?: boolean }[] = [
+          { name: "Title", ids: elements.filter((e) => e.textRole === "title").map((e) => e.id), visible: true },
+          {
+            name: "Figure",
+            ids: elements.filter((e) => e.type === "image").map((e) => e.id),
+            visible: true,
+            locked: false,
+          },
+          ...(hasTemplateParts
+            ? [
+                { name: "Diagram Parts", ids: elements.filter((e) => e.partRole === "part").map((e) => e.id), visible: true },
+                { name: "Arrows", ids: elements.filter((e) => e.type === "arrow").map((e) => e.id), visible: true },
+              ]
+            : []),
+          {
+            name: "Diagram Labels",
+            ids: elements.filter((e) => e.partRole === "detected").map((e) => e.id),
+            visible: true,
+          },
+          { name: "Labels", ids: elements.filter((e) => e.textRole === "label").map((e) => e.id), visible: true },
+          { name: "Caption", ids: elements.filter((e) => e.textRole === "caption").map((e) => e.id), visible: true },
+          { name: "Legend", ids: elements.filter((e) => e.textRole === "legend").map((e) => e.id), visible: true },
+        ].filter((g) => g.ids.length > 0);
+
+        for (const g of groups) {
+          const layerVisible = g.visible ?? true;
+          for (const elId of g.ids) {
+            const el = elements.find((e) => e.id === elId);
+            if (el) el.visible = layerVisible;
+          }
+        }
+
+        state.layers = groups.map((g) => ({
+          id: generateId("layer"),
+          name: g.name,
+          visible: g.visible ?? true,
+          locked: g.locked ?? false,
+          elements: g.ids,
+        }));
+        state.activeLayerId = state.layers[0]?.id ?? null;
+        state.history = [{ elements: JSON.parse(JSON.stringify(elements)), timestamp: Date.now() }];
+        state.historyIndex = 0;
+      });
+    },
+
+    loadWorkspaceSnapshot: (snapshot) => {
+      set((state) => {
+        state.elements = JSON.parse(JSON.stringify(snapshot.elements));
+        state.layers = JSON.parse(JSON.stringify(snapshot.layers));
+        state.canvasWidth = snapshot.canvasWidth;
+        state.canvasHeight = snapshot.canvasHeight;
+        state.projectName = snapshot.projectName;
+        state.selectedIds = [];
+        state.zoom = 1;
+        state.panX = 0;
+        state.panY = 0;
+        state.history = [{ elements: JSON.parse(JSON.stringify(snapshot.elements)), timestamp: Date.now() }];
+        state.historyIndex = 0;
+      });
+    },
+
+    getWorkspaceSnapshot: () => {
+      const state = get();
+      return {
+        elements: JSON.parse(JSON.stringify(state.elements)),
+        layers: JSON.parse(JSON.stringify(state.layers)),
+        canvasWidth: state.canvasWidth,
+        canvasHeight: state.canvasHeight,
+        projectName: state.projectName,
+      };
+    },
   }))
 );

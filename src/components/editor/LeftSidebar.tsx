@@ -3,12 +3,14 @@
 import { useEditorStore } from "@/store/editorStore";
 import { cn } from "@/lib/utils";
 import type { EditorTool } from "@/types";
-import { useState } from "react";
+import SidebarTooltip from "@/components/editor/SidebarTooltip";
 
-const tools: { id: EditorTool; label: string; icon: React.ReactNode }[] = [
+const tools: { id: EditorTool; label: string; description: string; shortcut: string; icon: React.ReactNode }[] = [
   {
     id: "select",
-    label: "Select (V)",
+    label: "Select",
+    description: "Click elements to select, drag to move, double-click text to edit.",
+    shortcut: "Shortcut: V",
     icon: (
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
         <path d="M3 2l10 6-5 1.5L6.5 14 3 2z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
@@ -17,7 +19,9 @@ const tools: { id: EditorTool; label: string; icon: React.ReactNode }[] = [
   },
   {
     id: "pan",
-    label: "Pan (H)",
+    label: "Pan",
+    description: "Drag the canvas to navigate. Scroll to pan, Ctrl+scroll to zoom.",
+    shortcut: "Shortcut: H · Middle-click drag",
     icon: (
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
         <path d="M8 2v12M2 8h12M5 5l-3 3 3 3M11 5l3 3-3 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
@@ -26,7 +30,9 @@ const tools: { id: EditorTool; label: string; icon: React.ReactNode }[] = [
   },
   {
     id: "shape",
-    label: "Shape (R)",
+    label: "Rectangle",
+    description: "Click on the canvas to add a resizable shape box for labels or highlights.",
+    shortcut: "Shortcut: R",
     icon: (
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
         <rect x="3" y="3" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.4"/>
@@ -35,7 +41,9 @@ const tools: { id: EditorTool; label: string; icon: React.ReactNode }[] = [
   },
   {
     id: "text",
-    label: "Text (T)",
+    label: "Text",
+    description: "Click to place a text box. Double-click any text to edit content.",
+    shortcut: "Shortcut: T",
     icon: (
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
         <path d="M3 4h10M8 4v9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
@@ -44,7 +52,9 @@ const tools: { id: EditorTool; label: string; icon: React.ReactNode }[] = [
   },
   {
     id: "arrow",
-    label: "Arrow (A)",
+    label: "Arrow",
+    description: "Click and drag to draw a directional arrow between two points.",
+    shortcut: "Shortcut: A",
     icon: (
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
         <path d="M3 13L13 3M13 3H8M13 3v5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
@@ -53,7 +63,9 @@ const tools: { id: EditorTool; label: string; icon: React.ReactNode }[] = [
   },
   {
     id: "pen",
-    label: "Pen (P)",
+    label: "Pen",
+    description: "Click and drag to draw freehand lines and annotations.",
+    shortcut: "Shortcut: P",
     icon: (
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
         <path d="M11 2l3 3-9 9H2v-3L11 2z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round"/>
@@ -63,18 +75,30 @@ const tools: { id: EditorTool; label: string; icon: React.ReactNode }[] = [
   },
 ];
 
-type SidebarPanel =
+export type SidebarPanel =
   | null
+  | "layers"
   | "biomedical"
   | "charts"
-  | "templates"
   | "ai"
   | "uploads";
 
-const panels: { id: SidebarPanel; label: string; icon: React.ReactNode }[] = [
+const panels: { id: Exclude<SidebarPanel, null>; label: string; description: string; icon: React.ReactNode }[] = [
+  {
+    id: "layers",
+    label: "Layers",
+    description: "Show or hide figure layers — title, AI image, legend, markers, and edges.",
+    icon: (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <path d="M1.5 6.5L8 3l6.5 3.5L8 10 1.5 6.5z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
+        <path d="M1.5 9.5L8 13l6.5-3.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+      </svg>
+    ),
+  },
   {
     id: "biomedical",
-    label: "Biomedical",
+    label: "Biomedical Assets",
+    description: "Insert cells, proteins, DNA, organs, and lab icons onto the canvas.",
     icon: (
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
         <circle cx="8" cy="8" r="5" stroke="currentColor" strokeWidth="1.4"/>
@@ -86,6 +110,7 @@ const panels: { id: SidebarPanel; label: string; icon: React.ReactNode }[] = [
   {
     id: "charts",
     label: "Charts",
+    description: "Add bar, line, scatter, and other data visualization panels.",
     icon: (
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
         <path d="M2 13h12M4 13V8M7 13V5M10 13V9M13 13V6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
@@ -93,20 +118,9 @@ const panels: { id: SidebarPanel; label: string; icon: React.ReactNode }[] = [
     ),
   },
   {
-    id: "templates",
-    label: "Templates",
-    icon: (
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-        <rect x="2" y="2" width="5.5" height="5.5" rx="1" stroke="currentColor" strokeWidth="1.3"/>
-        <rect x="8.5" y="2" width="5.5" height="5.5" rx="1" stroke="currentColor" strokeWidth="1.3"/>
-        <rect x="2" y="8.5" width="5.5" height="5.5" rx="1" stroke="currentColor" strokeWidth="1.3"/>
-        <rect x="8.5" y="8.5" width="5.5" height="5.5" rx="1" stroke="currentColor" strokeWidth="1.3"/>
-      </svg>
-    ),
-  },
-  {
     id: "ai",
     label: "AI Tools",
+    description: "Generate new figures or get AI suggestions for your layout.",
     icon: (
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
         <path d="M8 1.5L9.5 6H14L10.5 8.5L12 13L8 10.5L4 13L5.5 8.5L2 6H6.5L8 1.5Z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round"/>
@@ -115,7 +129,8 @@ const panels: { id: SidebarPanel; label: string; icon: React.ReactNode }[] = [
   },
   {
     id: "uploads",
-    label: "Uploads",
+    label: "Upload Image",
+    description: "Upload PNG, JPG, or SVG files and place them on the figure canvas.",
     icon: (
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
         <path d="M8 10V3M5.5 5.5L8 3l2.5 2.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
@@ -133,45 +148,43 @@ interface LeftSidebarProps {
 export default function LeftSidebar({ onOpenPanel, activePanel }: LeftSidebarProps) {
   const { tool, setTool } = useEditorStore();
 
+  const btnClass = (active: boolean) =>
+    cn(
+      "w-full aspect-square rounded-md flex items-center justify-center transition-colors",
+      active ? "bg-indigo-500/20 text-indigo-400" : "text-zinc-500 hover:text-zinc-300 hover:bg-white/5"
+    );
+
   return (
     <aside className="w-12 h-full bg-[#0F1629] border-r border-white/10 flex flex-col items-center py-2 gap-1 flex-shrink-0">
-      {/* Tools */}
       <div className="flex flex-col gap-0.5 w-full px-1.5">
         {tools.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setTool(t.id)}
-            title={t.label}
-            className={cn(
-              "w-full aspect-square rounded-md flex items-center justify-center transition-colors",
-              tool === t.id
-                ? "bg-indigo-500/20 text-indigo-400"
-                : "text-zinc-500 hover:text-zinc-300 hover:bg-white/5"
-            )}
-          >
-            {t.icon}
-          </button>
+          <SidebarTooltip key={t.id} label={t.label} description={t.description} shortcut={t.shortcut}>
+            <button
+              onClick={() => setTool(t.id)}
+              aria-label={t.label}
+              aria-pressed={tool === t.id}
+              className={btnClass(tool === t.id)}
+            >
+              {t.icon}
+            </button>
+          </SidebarTooltip>
         ))}
       </div>
 
       <div className="w-6 h-px bg-white/10 my-1" />
 
-      {/* Panel Toggles */}
       <div className="flex flex-col gap-0.5 w-full px-1.5">
         {panels.map((p) => (
-          <button
-            key={p.id}
-            onClick={() => onOpenPanel?.(activePanel === p.id ? null : p.id)}
-            title={p.label}
-            className={cn(
-              "w-full aspect-square rounded-md flex items-center justify-center transition-colors",
-              activePanel === p.id
-                ? "bg-indigo-500/20 text-indigo-400"
-                : "text-zinc-500 hover:text-zinc-300 hover:bg-white/5"
-            )}
-          >
-            {p.icon}
-          </button>
+          <SidebarTooltip key={p.id} label={p.label} description={p.description}>
+            <button
+              onClick={() => onOpenPanel?.(activePanel === p.id ? null : p.id)}
+              aria-label={p.label}
+              aria-pressed={activePanel === p.id}
+              className={btnClass(activePanel === p.id)}
+            >
+              {p.icon}
+            </button>
+          </SidebarTooltip>
         ))}
       </div>
     </aside>

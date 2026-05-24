@@ -6,9 +6,23 @@ import { cn } from "@/lib/utils";
 
 type RightTab = "layers" | "properties" | "ai-suggestions";
 
-export default function RightSidebar() {
-  const [activeTab, setActiveTab] = useState<RightTab>("layers");
-  const { layers, elements, selectedIds, toggleLayerVisibility, toggleLayerLock, addLayer, removeLayer } = useEditorStore();
+export type { RightTab };
+
+interface RightSidebarProps {
+  activeTab?: RightTab;
+  onTabChange?: (tab: RightTab) => void;
+  onExport?: (format: "png" | "svg" | "pdf" | "pptx") => void;
+}
+
+export default function RightSidebar({ activeTab: controlledTab, onTabChange, onExport }: RightSidebarProps = {}) {
+  const [internalTab, setInternalTab] = useState<RightTab>("layers");
+  const activeTab = controlledTab ?? internalTab;
+  const setActiveTab = (tab: RightTab) => {
+    setInternalTab(tab);
+    onTabChange?.(tab);
+  };
+
+  const { layers, elements, selectedIds, toggleLayerVisibility, toggleLayerLock, addLayer, removeLayer, updateElement, removeElements } = useEditorStore();
 
   const selectedElements = elements.filter((el) => selectedIds.includes(el.id));
   const firstSelected = selectedElements[0];
@@ -112,6 +126,55 @@ export default function RightSidebar() {
           <div className="p-3">
             {firstSelected ? (
               <div className="space-y-4">
+                {firstSelected.type === "biomedical" && (
+                  <div>
+                    <label className="text-xs text-zinc-500 uppercase tracking-wide block mb-2">Asset label</label>
+                    <textarea
+                      value={firstSelected.label || firstSelected.content || ""}
+                      onChange={(e) => updateElement(firstSelected.id, {
+                        label: e.target.value,
+                        content: e.target.value,
+                      })}
+                      rows={2}
+                      className="w-full bg-white/5 text-white text-xs rounded px-2 py-1.5 border border-white/10 outline-none focus:border-indigo-500 resize-y leading-relaxed"
+                    />
+                  </div>
+                )}
+                {firstSelected.type === "biomedical" && (
+                  <>
+                    <div>
+                      <label className="text-xs text-zinc-500 uppercase tracking-wide block mb-2">Scientific name</label>
+                      <input
+                        type="text"
+                        value={firstSelected.scientificName || ""}
+                        onChange={(e) => updateElement(firstSelected.id, { scientificName: e.target.value })}
+                        className="w-full bg-white/5 text-white text-xs rounded px-2 py-1.5 border border-white/10 outline-none focus:border-indigo-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-zinc-500 uppercase tracking-wide block mb-2">Description</label>
+                      <textarea
+                        value={firstSelected.assetDescription || ""}
+                        onChange={(e) => updateElement(firstSelected.id, { assetDescription: e.target.value })}
+                        rows={3}
+                        className="w-full bg-white/5 text-white text-xs rounded px-2 py-1.5 border border-white/10 outline-none focus:border-indigo-500 resize-y"
+                      />
+                    </div>
+                  </>
+                )}
+                {firstSelected.type === "text" && (
+                  <div>
+                    <label className="text-xs text-zinc-500 uppercase tracking-wide block mb-2">
+                      {firstSelected.textRole === "legend" ? "Legend" : firstSelected.textRole === "caption" ? "Caption" : firstSelected.textRole === "title" ? "Title" : "Text"}
+                    </label>
+                    <textarea
+                      value={firstSelected.content || firstSelected.label || ""}
+                      onChange={(e) => updateElement(firstSelected.id, { content: e.target.value })}
+                      rows={firstSelected.textRole === "legend" ? 6 : 3}
+                      className="w-full bg-white/5 text-white text-xs rounded px-2 py-1.5 border border-white/10 outline-none focus:border-indigo-500 resize-y leading-relaxed"
+                    />
+                  </div>
+                )}
                 <div>
                   <label className="text-xs text-zinc-500 uppercase tracking-wide block mb-2">Position</label>
                   <div className="grid grid-cols-2 gap-2">
@@ -120,8 +183,8 @@ export default function RightSidebar() {
                       <input
                         type="number"
                         value={Math.round(firstSelected.x)}
-                        readOnly
-                        className="w-full bg-white/5 text-white text-xs rounded px-2 py-1.5 border border-white/10 outline-none"
+                        onChange={(e) => updateElement(firstSelected.id, { x: Number(e.target.value) })}
+                        className="w-full bg-white/5 text-white text-xs rounded px-2 py-1.5 border border-white/10 outline-none focus:border-indigo-500"
                       />
                     </div>
                     <div>
@@ -129,8 +192,8 @@ export default function RightSidebar() {
                       <input
                         type="number"
                         value={Math.round(firstSelected.y)}
-                        readOnly
-                        className="w-full bg-white/5 text-white text-xs rounded px-2 py-1.5 border border-white/10 outline-none"
+                        onChange={(e) => updateElement(firstSelected.id, { y: Number(e.target.value) })}
+                        className="w-full bg-white/5 text-white text-xs rounded px-2 py-1.5 border border-white/10 outline-none focus:border-indigo-500"
                       />
                     </div>
                   </div>
@@ -143,8 +206,8 @@ export default function RightSidebar() {
                       <input
                         type="number"
                         value={Math.round(firstSelected.width)}
-                        readOnly
-                        className="w-full bg-white/5 text-white text-xs rounded px-2 py-1.5 border border-white/10 outline-none"
+                        onChange={(e) => updateElement(firstSelected.id, { width: Math.max(20, Number(e.target.value)) })}
+                        className="w-full bg-white/5 text-white text-xs rounded px-2 py-1.5 border border-white/10 outline-none focus:border-indigo-500"
                       />
                     </div>
                     <div>
@@ -152,8 +215,8 @@ export default function RightSidebar() {
                       <input
                         type="number"
                         value={Math.round(firstSelected.height)}
-                        readOnly
-                        className="w-full bg-white/5 text-white text-xs rounded px-2 py-1.5 border border-white/10 outline-none"
+                        onChange={(e) => updateElement(firstSelected.id, { height: Math.max(20, Number(e.target.value)) })}
+                        className="w-full bg-white/5 text-white text-xs rounded px-2 py-1.5 border border-white/10 outline-none focus:border-indigo-500"
                       />
                     </div>
                   </div>
@@ -168,8 +231,8 @@ export default function RightSidebar() {
                     <input
                       type="text"
                       value={firstSelected.fill || "#6366f1"}
-                      readOnly
-                      className="flex-1 bg-white/5 text-white text-xs rounded px-2 py-1.5 border border-white/10 outline-none"
+                      onChange={(e) => updateElement(firstSelected.id, { fill: e.target.value })}
+                      className="flex-1 bg-white/5 text-white text-xs rounded px-2 py-1.5 border border-white/10 outline-none focus:border-indigo-500"
                     />
                   </div>
                 </div>
@@ -181,11 +244,18 @@ export default function RightSidebar() {
                     max="1"
                     step="0.01"
                     value={firstSelected.opacity}
-                    readOnly
+                    onChange={(e) => updateElement(firstSelected.id, { opacity: Number(e.target.value) })}
                     className="w-full accent-indigo-500"
                   />
                   <span className="text-xs text-zinc-500 mt-1">{Math.round(firstSelected.opacity * 100)}%</span>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => removeElements(selectedIds)}
+                  className="w-full py-2 text-xs font-medium rounded-lg bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20 transition-colors"
+                >
+                  Delete selected (Del)
+                </button>
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -237,9 +307,11 @@ export default function RightSidebar() {
       <div className="border-t border-white/10 p-3">
         <p className="text-xs text-zinc-600 uppercase tracking-wide font-semibold mb-2">Export</p>
         <div className="grid grid-cols-2 gap-1.5">
-          {["PNG", "SVG", "PDF", "PPTX"].map((fmt) => (
+          {(["PNG", "SVG", "PDF", "PPTX"] as const).map((fmt) => (
             <button
               key={fmt}
+              type="button"
+              onClick={() => onExport?.(fmt.toLowerCase() as "png" | "svg" | "pdf" | "pptx")}
               className="py-1.5 text-xs font-medium rounded-md bg-white/5 hover:bg-white/10 text-zinc-300 transition-colors"
             >
               {fmt}

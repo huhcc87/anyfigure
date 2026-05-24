@@ -1,20 +1,23 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { IBM_Plex_Sans, Source_Serif_4 } from "next/font/google";
 import { ClerkProvider } from "@clerk/nextjs";
+import { Toaster } from "sonner";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const plexSans = IBM_Plex_Sans({
+  variable: "--font-plex-sans",
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const sourceSerif = Source_Serif_4({
+  variable: "--font-source-serif",
   subsets: ["latin"],
+  weight: ["600", "700"],
 });
 
 export const metadata: Metadata = {
-  title: "AnyFigure AI — Scientific Figure Platform for Researchers",
+  title: "AnyFigure Scientific Figures (V1)",
   description:
     "Generate publication-ready biomedical figures from natural language prompts. AI-powered scientific figure studio for cancer biologists, genomics researchers, and clinicians.",
   keywords: [
@@ -37,9 +40,12 @@ export default function RootLayout({
     <ClerkProvider>
       <html
         lang="en"
-        className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+        className={`${plexSans.variable} ${sourceSerif.variable} h-full antialiased`}
       >
-        <body className="min-h-full flex flex-col bg-[#080C1C]">{children}</body>
+        <body className="min-h-full flex flex-col bg-[#eef2f7] text-slate-900">
+          {children}
+          <Toaster position="bottom-center" richColors closeButton />
+        </body>
       </html>
     </ClerkProvider>
   );

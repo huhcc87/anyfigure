@@ -3,6 +3,7 @@
 interface PathwayPanelProps {
   variant?: "signaling" | "crispr" | "immune" | "metabolic" | "generic";
   color?: string;
+  title?: string;
 }
 
 const Arrow = ({ x1, y1, x2, y2, color = "#6366F1" }: { x1: number; y1: number; x2: number; y2: number; color?: string }) => {
@@ -39,7 +40,7 @@ const InhibitArrow = ({ x1, y1, x2, y2 }: { x1: number; y1: number; x2: number; 
   </g>
 );
 
-export default function PathwayPanel({ variant = "signaling", color = "#6366F1" }: PathwayPanelProps) {
+export default function PathwayPanel({ variant = "signaling", color = "#6366F1", title }: PathwayPanelProps) {
   if (variant === "crispr") {
     return (
       <svg viewBox="0 0 280 200" className="w-full h-full" style={{ maxHeight: 200 }}>
@@ -94,7 +95,7 @@ export default function PathwayPanel({ variant = "signaling", color = "#6366F1" 
         {/* Perforin/Granzyme */}
         <Node x={140} y={192} w={75} h={16} label="Perforin/GzmB" color="#8B5CF6" />
         <Arrow x1={100} y1={130} x2={120} y2={182} color="#8B5CF6" />
-        <text x={140} y={10} textAnchor="middle" fontSize="8" fontWeight="700" fill="#CBD5E1">Immune Checkpoint Axis</text>
+        <text x={140} y={10} textAnchor="middle" fontSize="8" fontWeight="700" fill="#CBD5E1">{title || "Immune Checkpoint Axis"}</text>
       </svg>
     );
   }
@@ -102,7 +103,7 @@ export default function PathwayPanel({ variant = "signaling", color = "#6366F1" 
   if (variant === "metabolic") {
     return (
       <svg viewBox="0 0 280 200" className="w-full h-full" style={{ maxHeight: 200 }}>
-        <text x={140} y={14} textAnchor="middle" fontSize="8" fontWeight="700" fill="#CBD5E1">PI3K / AKT / mTOR Pathway</text>
+        <text x={140} y={14} textAnchor="middle" fontSize="8" fontWeight="700" fill="#CBD5E1">{title || "PI3K / AKT / mTOR Pathway"}</text>
         <Node x={140} y={35} w={60} label="RTK" sub="EGF/IGF-1R" color="#06B6D4" active />
         <Arrow x1={140} y1={48} x2={140} y2={63} color="#06B6D4" />
         <Node x={140} y={76} label="PI3K" color={color} />
@@ -151,7 +152,7 @@ export default function PathwayPanel({ variant = "signaling", color = "#6366F1" 
   // default: signaling
   return (
     <svg viewBox="0 0 280 200" className="w-full h-full" style={{ maxHeight: 200 }}>
-      <text x={140} y={14} textAnchor="middle" fontSize="8" fontWeight="700" fill="#CBD5E1">MAPK / ERK Signaling</text>
+        <text x={140} y={14} textAnchor="middle" fontSize="8" fontWeight="700" fill="#CBD5E1">{title || "MAPK / ERK Signaling"}</text>
       <Node x={140} y={35} w={70} label="Growth Factor" sub="EGF/FGF" color="#06B6D4" active />
       <Arrow x1={140} y1={48} x2={140} y2={63} color="#06B6D4" />
       <Node x={140} y={76} w={55} label="RAS" sub="GTP-bound" color={color} active />

@@ -26,6 +26,23 @@ export interface CanvasElement {
   assetId?: string;
   chartData?: ChartData;
   zIndex: number;
+  /** Helps style & identify title, legend, caption layers in workspace */
+  textRole?: "title" | "legend" | "caption" | "label";
+  /** rect | ellipse | marker (epigenetic dot) | nucleosome */
+  shapeKind?: "rect" | "ellipse" | "marker" | "nucleosome";
+  /** reference = legacy hidden AI layer; figure = visible AI panel; part = diagram piece */
+  partRole?: "reference" | "part" | "figure" | "detected";
+  /** Diagonal arrow / regulatory edge endpoints (canvas coords) */
+  lineFrom?: { x: number; y: number };
+  lineTo?: { x: number; y: number };
+  arrowKind?: "activate" | "inhibit";
+  /** SVG path d attribute for freehand pen strokes */
+  pathData?: string;
+  /** Biomedical asset metadata */
+  scientificName?: string;
+  assetDescription?: string;
+  biomedicalCategory?: string;
+  assetEmoji?: string;
 }
 
 export interface Layer {

@@ -91,6 +91,10 @@ Return ONLY valid JSON:
     const data = await response.json();
     const content = data.choices[0].message.content;
     const plan = JSON.parse(content);
+    const maxPanels = Math.max(1, Math.min(Number(numPanels) || 1, 6));
+    if (Array.isArray(plan.panels) && plan.panels.length > maxPanels) {
+      plan.panels = plan.panels.slice(0, maxPanels);
+    }
 
     return NextResponse.json({ plan, model });
   } catch (err) {

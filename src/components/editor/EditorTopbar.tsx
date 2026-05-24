@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEditorStore } from "@/store/editorStore";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -11,6 +12,7 @@ interface EditorTopbarProps {
 }
 
 export default function EditorTopbar({ onExport, onAIGenerate }: EditorTopbarProps) {
+  const pathname = usePathname();
   const { projectName, setProjectName, zoom, setZoom, undo, redo, historyIndex, history } = useEditorStore();
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState(projectName);
@@ -27,8 +29,8 @@ export default function EditorTopbar({ onExport, onAIGenerate }: EditorTopbarPro
 
   return (
     <header className="h-12 bg-[#0F1629] border-b border-white/10 flex items-center px-3 gap-2 flex-shrink-0 z-20">
-      {/* Logo */}
-      <Link href="/" className="flex items-center gap-1.5 mr-2 flex-shrink-0">
+      {/* Logo + app nav */}
+      <Link href="/ai-figure-studio" className="flex items-center gap-1.5 mr-1 flex-shrink-0" title="AnyFigure">
         <div className="w-6 h-6 rounded-md bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center">
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
             <circle cx="6" cy="6" r="4" stroke="white" strokeWidth="1.5"/>
@@ -36,6 +38,24 @@ export default function EditorTopbar({ onExport, onAIGenerate }: EditorTopbarPro
           </svg>
         </div>
       </Link>
+
+      <div className="hidden lg:flex items-center gap-0.5 mr-1">
+        {[
+          { href: "/ai-figure-studio", label: "AI Figure Studio" },
+          { href: "/workspace", label: "Workspace" },
+        ].map((link) => (
+          <Link
+            key={link.href}
+            href={link.href}
+            className={cn(
+              "px-2 py-1 rounded text-[11px] font-medium transition-colors",
+              pathname === link.href ? "text-white bg-white/10" : "text-zinc-500 hover:text-zinc-200"
+            )}
+          >
+            {link.label}
+          </Link>
+        ))}
+      </div>
 
       <div className="w-px h-5 bg-white/10 mx-1" />
 
