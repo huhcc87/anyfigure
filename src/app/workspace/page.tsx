@@ -118,14 +118,41 @@ export default function WorkspacePage() {
     }
   }, [aiPrompt, loadFromSceneGraph]);
 
-  // Load the cached figure plan from Studio handoff (sessionStorage → IndexedDB)
+  // Load handoff from Home (vector scene graph) OR Studio (FigurePlan).
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
+        // 1. Prefer the vector-first scene graph if Home just handed one off.
+        try {
+          const raw = sessionStorage.getItem("anyfigure_pending_scene");
+          if (raw) {
+            const scene = JSON.parse(raw);
+            sessionStorage.removeItem("anyfigure_pending_scene");
+            if (scene?.elements?.length) {
+              loadFromSceneGraph(scene);
+              toast.success(`Loaded ${scene.elements.length} editable vector elements`);
+              if (!cancelled) setLoadingPlan(false);
+              return;
+            }
+          }
+        } catch {
+          /* fall through to plan loader */
+        }
+
+        // 2. Otherwise load any cached raster-mode plan from Studio handoff.
         const plan = await loadPlanForWorkspace();
         if (cancelled) return;
-        if (plan?.panels?.length) {
+        // 2a. The Home page also stores its scene under plan.sceneGraph as a
+        //     piggy-back on the same cache. Detect that and route to the
+        //     vector loader.
+        const planSceneGraph = (plan as unknown as { sceneGraph?: { elements?: unknown[] } })
+          ?.sceneGraph;
+        if (planSceneGraph?.elements?.length) {
+          loadFromSceneGraph(planSceneGraph as never);
+          toast.success(`Loaded ${planSceneGraph.elements.length} editable vector elements`);
+          clearSessionPlanOnly();
+        } else if (plan?.panels?.length) {
           loadFromFigurePlan(plan);
           const labelCount = plan.panels.reduce(
             (n, p) => n + (p.textNodesManifest?.regions?.length ?? 0),
