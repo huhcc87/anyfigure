@@ -335,8 +335,9 @@ export const TextEditOverlay = memo(function TextEditOverlay({
           ref={overlayRef}
           className="absolute inset-0 z-[50]"
           style={{
+            pointerEvents: "auto",
             cursor: hoveredId ? "pointer" : "crosshair",
-            background: "transparent",
+            background: "rgba(0, 150, 200, 0.03)",
           }}
           onClick={handleOverlayClick}
           onMouseMove={handleOverlayMouseMove}
