@@ -12,7 +12,7 @@ import type { PathwayTemplate } from "@/data/biomedicalPathwayTemplates";
 import { createBiomedicalCanvasElement } from "@/utils/createBiomedicalCanvasElement";
 import { getAssetById } from "@/data/biomedicalAssets";
 import { useEditorStore } from "@/store/editorStore";
-import { loadPlanForWorkspace, clearSessionPlanOnly } from "@/lib/figureStore";
+import { loadPlanForWorkspace, clearSessionPlanOnly, cacheEditPlan } from "@/lib/figureStore";
 import type { ChartData } from "@/types";
 
 const InfiniteCanvas = dynamic(() => import("@/components/canvas/InfiniteCanvas"), {
@@ -86,6 +86,13 @@ export default function WorkspacePage() {
   const [loadingPlan, setLoadingPlan] = useState(true);
   const [aiPrompt, setAiPrompt] = useState("");
   const [generatingScene, setGeneratingScene] = useState(false);
+  /** Figure ID of the currently loaded raster figure (set when a FigurePlan
+   *  with images is loaded). Needed to call /api/figures/[id]/make-editable. */
+  const [loadedFigureId, setLoadedFigureId] = useState<string | null>(null);
+  /** True if the loaded plan has imageUrl panels but no detected labels yet —
+   *  shows the "Make Text Editable" button so the user can trigger OCR. */
+  const [needsTextExtraction, setNeedsTextExtraction] = useState(false);
+  const [extractingText, setExtractingText] = useState(false);
 
   const handleGenerateScene = useCallback(async () => {
     const prompt = aiPrompt.trim();
@@ -158,8 +165,16 @@ export default function WorkspacePage() {
             (n, p) => n + (p.textNodesManifest?.regions?.length ?? 0),
             0
           );
+          const hasRasterImage = plan.panels.some((p) => !!p.imageUrl);
           if (labelCount > 0) {
             toast.success(`Loaded ${labelCount} editable labels — click any to edit`);
+          } else if (hasRasterImage) {
+            // Raster figure with no labels detected yet — surface the
+            // "Make Text Editable" button so the user can trigger OCR.
+            const figId = (typeof window !== "undefined" && new URL(window.location.href).searchParams.get("figure")) || null;
+            setLoadedFigureId(figId);
+            setNeedsTextExtraction(true);
+            toast.info(`Image loaded — click "Make Text Editable" to extract editable labels`);
           } else {
             toast.success(`Loaded "${plan.title || "figure"}" into the canvas`);
           }
@@ -177,6 +192,51 @@ export default function WorkspacePage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /** Run vision-OCR on the loaded raster figure, convert detected text regions
+   *  into editable CanvasElements, and refresh the layers panel. */
+  const handleMakeTextEditable = useCallback(async () => {
+    if (extractingText) return;
+    setExtractingText(true);
+    try {
+      toast.info("Detecting text regions with Gemini Vision — 30 to 90 seconds…");
+      const plan = await loadPlanForWorkspace();
+      if (!plan?.panels?.length) {
+        toast.error("No image to extract text from");
+        return;
+      }
+      // Re-use existing /api/ai/extract-text-regions endpoint (it does the OCR
+      // + writes the manifest back into the plan). force:true bypasses any
+      // empty cached manifest from a prior run.
+      const res = await fetch("/api/ai/extract-text-regions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan, force: true }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.status !== "ok") {
+        toast.error(data.error || "Text extraction failed");
+        return;
+      }
+      const enriched = data.plan;
+      const labelCount = enriched.panels?.reduce(
+        (n: number, p: { textNodesManifest?: { regions?: unknown[] } }) =>
+          n + (p.textNodesManifest?.regions?.length ?? 0),
+        0
+      ) ?? 0;
+      // Reload the canvas — this re-runs importFigurePlan which now sees the
+      // textNodesManifest and adds every region as an editable text element.
+      loadFromFigurePlan(enriched);
+      if (loadedFigureId) await cacheEditPlan(loadedFigureId, enriched);
+      setNeedsTextExtraction(false);
+      toast.success(`Detected ${labelCount} editable labels — double-click any to edit`);
+    } catch (err) {
+      console.error("[workspace] make-editable failed:", err);
+      toast.error("Text extraction failed — check console");
+    } finally {
+      setExtractingText(false);
+    }
+  }, [extractingText, loadedFigureId, loadFromFigurePlan]);
 
   const handleOpenPanel = useCallback((panel: SidebarPanel) => {
     setActivePanel(panel);
@@ -366,6 +426,50 @@ export default function WorkspacePage() {
           )}
 
           <div className="flex-1 min-w-0 min-h-0 flex flex-col">
+            {/* ─── BIG "Make Text Editable" CTA — only shows for raster figures
+                that haven't been OCR'd yet. This is the path users were
+                missing for Nano Banana Pro figures. ─── */}
+            {needsTextExtraction && (
+              <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-gradient-to-r from-amber-50 to-rose-50 border-b border-amber-200">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+                    <svg className="w-4 h-4 text-amber-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                      <path d="M4 4h6v6H4zM4 14h6v6H4zM14 14h6v6h-6z" />
+                      <path d="M14 4l6 6M14 10l6-6" strokeLinecap="round" />
+                    </svg>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-slate-900 leading-tight">
+                      Raster image loaded — text isn&apos;t editable yet.
+                    </p>
+                    <p className="text-[11px] text-slate-600 leading-tight">
+                      Run Gemini Vision to detect labels and turn them into draggable, editable text.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void handleMakeTextEditable()}
+                  disabled={extractingText}
+                  className="shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-amber-600 hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold cursor-pointer shadow-sm"
+                >
+                  {extractingText ? (
+                    <>
+                      <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                      Detecting labels…
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M4 20h4l10-10-4-4L4 16v4z" strokeLinejoin="round" />
+                      </svg>
+                      Make Text Editable
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+
             {/* ─── PROMPT BAR — vector-first generation pipeline ─── */}
             <div className="flex items-center gap-2 px-4 py-2 bg-white border-b border-gray-200">
               <div className="flex items-center gap-1.5 text-[11px] font-semibold text-indigo-600 mr-1 shrink-0">
