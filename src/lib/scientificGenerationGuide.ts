@@ -26,27 +26,45 @@ Show MLL1/COMPASS, EZH2/PRC2, and PD2/hPaf1 protein complexes with regulatory ed
 Include a PAF1-Y inset call-out box.`
     : "";
 
-  return `${modePrefix}Scientific Schematic Diagram. Style: Professional, publication-ready, BioRender-style vector illustration.
+  return `${modePrefix}Scientific Schematic Illustration — VISUAL SHAPES ONLY, NO TEXT WHATSOEVER.
 
 Goal: Illustrate ${goal} as a central signaling axis. Panel ${label}.
 
+═════════════════════════════════════════════════════════════════
+⛔ CRITICAL RULE — ZERO TEXT IN THE IMAGE ⛔
+═════════════════════════════════════════════════════════════════
+You MUST NOT render ANY text, letters, numbers, words, abbreviations,
+panel labels, axis labels, protein names, gene names, captions, titles,
+or annotations of ANY kind in the output image.
+
+NO "Panel A". NO "MLL1/COMPASS". NO "MUC4". NO "H3K4me3". NO "Normal".
+NO "OVEREXPRESSION". NO arrows with text. NO callouts with text.
+NOT EVEN unreadable scribbles that look like text.
+
+Text will be added as a separate editable layer AFTER generation. If
+you draw any text into the pixels, it creates duplicate labels that
+cannot be removed and ruins downstream editing.
+
+INSTEAD, draw ONLY the visual elements: protein blobs, cell shapes,
+membrane lines, DNA/RNA helices, methyl/m6A circle markers, arrows
+(WITHOUT text), T-bar inhibitors, organelle outlines, tissue cross-
+sections. Use color and shape alone to convey identity — the user
+will type protein names into editable overlays themselves.
+
+If you cannot generate a figure without text, generate an empty white
+canvas — that is preferable to baked-in labels.
+
 Visual Requirements:
-- Nodes: Clearly label molecular entities (proteins/genes) as clean, distinct icons.
-- Regulatory Edges: Sharp arrows for activation and T-bars for inhibition/displacement.
-- Epigenetic Markers: Histone modifications (H3K4me3/H3K27me3) as small, high-contrast circular icons on DNA/histone tails.
-- Typography: Sans-serif font styling. All labels clearly rendered and spelled correctly.
-- Composition: Stark white background, minimal color palette, high-fidelity symmetrical layout.${epigenBlock}
+- Nodes: Use colored blobs / ellipses / molecular shapes for proteins,
+  cells, organelles — but DO NOT WRITE THEIR NAMES inside them.
+- Regulatory Edges: Sharp arrows for activation and T-bars for
+  inhibition. Arrows must NOT carry text labels.
+- Epigenetic Markers: Small high-contrast circles (green for H3K4me3,
+  red for H3K27me3, yellow for m6A) — but DO NOT write "H3K4me3" /
+  "m6A" anywhere; the shape's color carries the identity.
+- Layout: Stark white background, minimal palette, symmetrical.${epigenBlock}
 
-CRITICAL — Text isolation for downstream editability:
-- ALL text labels MUST appear on a solid pure-white (#FFFFFF) background patch.
-- NEVER render text directly on top of a colored shape, gradient, or textured fill.
-- Each text label needs at least 8 px of pure-white margin around all four sides.
-- If a label refers to a colored protein/cell shape, place the label ADJACENT to the shape (above, below, or beside) on white space — not overlapping it.
-- Do NOT render the same label twice (no duplicates, no "label inside shape + label outside shape").
-- Keep label font size visually consistent across the figure (~14-18 pt equivalent).
-- This is mandatory because labels will be programmatically replaced after generation; ANY text outside an isolated white patch will leave visible artefacts.
-
-Field: ${scientificField || "biomedical"}. ${style || "Flat 2D vector, Nature journal style."} No watermarks.`;
+Field: ${scientificField || "biomedical"}. ${style || "Flat 2D vector, Nature journal style."} No watermarks. ABSOLUTELY NO TEXT.`;
 }
 
 export const GENERATION_GUIDE_SECTIONS = [
