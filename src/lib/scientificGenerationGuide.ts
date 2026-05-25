@@ -37,6 +37,15 @@ Visual Requirements:
 - Typography: Sans-serif font styling. All labels clearly rendered and spelled correctly.
 - Composition: Stark white background, minimal color palette, high-fidelity symmetrical layout.${epigenBlock}
 
+CRITICAL — Text isolation for downstream editability:
+- ALL text labels MUST appear on a solid pure-white (#FFFFFF) background patch.
+- NEVER render text directly on top of a colored shape, gradient, or textured fill.
+- Each text label needs at least 8 px of pure-white margin around all four sides.
+- If a label refers to a colored protein/cell shape, place the label ADJACENT to the shape (above, below, or beside) on white space — not overlapping it.
+- Do NOT render the same label twice (no duplicates, no "label inside shape + label outside shape").
+- Keep label font size visually consistent across the figure (~14-18 pt equivalent).
+- This is mandatory because labels will be programmatically replaced after generation; ANY text outside an isolated white patch will leave visible artefacts.
+
 Field: ${scientificField || "biomedical"}. ${style || "Flat 2D vector, Nature journal style."} No watermarks.`;
 }
 
