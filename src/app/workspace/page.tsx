@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import dynamic from "next/dynamic";
+import { toast } from "sonner";
 import StudioSidebar, { MobileAppNav } from "@/components/studio/StudioSidebar";
 import EditorTopbar from "@/components/editor/EditorTopbar";
 import LeftSidebar, { type SidebarPanel } from "@/components/editor/LeftSidebar";
@@ -11,6 +12,7 @@ import type { PathwayTemplate } from "@/data/biomedicalPathwayTemplates";
 import { createBiomedicalCanvasElement } from "@/utils/createBiomedicalCanvasElement";
 import { getAssetById } from "@/data/biomedicalAssets";
 import { useEditorStore } from "@/store/editorStore";
+import { loadPlanForWorkspace, clearSessionPlanOnly } from "@/lib/figureStore";
 import type { ChartData } from "@/types";
 
 const InfiniteCanvas = dynamic(() => import("@/components/canvas/InfiniteCanvas"), {
@@ -73,7 +75,41 @@ export default function WorkspacePage() {
   const [exportError, setExportError] = useState<string | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
-  const { addElement, canvasWidth, canvasHeight } = useEditorStore();
+  const { addElement, canvasWidth, canvasHeight, loadFromFigurePlan, elements } = useEditorStore();
+  const [loadingPlan, setLoadingPlan] = useState(true);
+
+  // Load the cached figure plan from Studio handoff (sessionStorage → IndexedDB)
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const plan = await loadPlanForWorkspace();
+        if (cancelled) return;
+        if (plan?.panels?.length) {
+          loadFromFigurePlan(plan);
+          const labelCount = plan.panels.reduce(
+            (n, p) => n + (p.textNodesManifest?.regions?.length ?? 0),
+            0
+          );
+          if (labelCount > 0) {
+            toast.success(`Loaded ${labelCount} editable labels — click any to edit`);
+          } else {
+            toast.success(`Loaded "${plan.title || "figure"}" into the canvas`);
+          }
+          clearSessionPlanOnly();
+        }
+      } catch (err) {
+        console.error("[workspace] failed to load plan:", err);
+        toast.error("Failed to load figure into editor");
+      } finally {
+        if (!cancelled) setLoadingPlan(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleOpenPanel = useCallback((panel: SidebarPanel) => {
     setActivePanel(panel);

@@ -256,7 +256,10 @@ function addDiagramParts(
   return nextZ;
 }
 
-/** Add vision-detected labels as editable text on top of the figure image (pixel manifest). */
+/** Add vision-detected labels as editable text on top of the figure image (pixel manifest).
+ *  IMPORTANT: Imports ALL detected labels so every label is independently editable in the canvas
+ *  (FigureLabs-style). The renderer auto-masks detected labels with a white background so the
+ *  baked-in raster text underneath is hidden — click any label to edit, drag, resize, recolor. */
 function addDetectedLabelsFromManifest(
   elements: CanvasElement[],
   manifest: TextRegionManifest,
@@ -267,8 +270,8 @@ function addDetectedLabelsFromManifest(
   zStart: number
 ): number {
   let z = zStart;
-  const edited = manifest.regions.filter((r) => r.userEdited);
-  for (const r of edited) {
+  for (const r of manifest.regions) {
+    if (!r.text || !r.text.trim()) continue;
     const bbox = sanitizeBbox(r.bbox, r.text, manifest.imageWidth, manifest.imageHeight);
     const layout = mapPixelBboxToLayout(bbox, manifest.imageWidth, manifest.imageHeight, imgW, imgH, imgX, imgY);
     elements.push({
@@ -286,10 +289,10 @@ function addDetectedLabelsFromManifest(
       visible: true,
       content: r.text,
       fill: "#111827",
-      zIndex: zStart + 200,
+      zIndex: z++,
     });
   }
-  return zStart + (edited.length ? 201 : 1);
+  return Math.max(z, zStart + 1);
 }
 
 /** Add panel content — AI image panels show the raster + detected text labels. */
