@@ -20,6 +20,60 @@ function clamp01(n: number, min = 0, max = 1): number {
   return Math.min(max, Math.max(min, Number.isFinite(n) ? n : min));
 }
 
+/**
+ * Robust bbox parser — Gemini routinely ignores the prompt's format spec and
+ * returns one of THREE possible bbox conventions. We auto-detect which one:
+ *   A) [x, y, w, h] normalized 0.0–1.0       (our requested format)
+ *   B) [y_min, x_min, y_max, x_max] in 0–1000 ints  (Gemini object-detection native)
+ *   C) [x, y, w, h] in raw image pixels
+ *
+ * Wrong-format detection symptoms: labels appear systematically shifted from the
+ * baked-in raster text, often by ~text-width or with X/Y swapped.
+ */
+function decodeBboxToPixels(
+  vals: number[],
+  imageWidth: number,
+  imageHeight: number
+): [number, number, number, number] {
+  const maxVal = Math.max(...vals);
+  const allLeqOne = vals.every((v) => v >= 0 && v <= 1);
+  const allLeq1000 = vals.every((v) => v >= 0 && v <= 1000);
+
+  // Format A: normalized 0–1 [x, y, w, h]
+  if (allLeqOne) {
+    return [
+      Math.round(vals[0] * imageWidth),
+      Math.round(vals[1] * imageHeight),
+      Math.max(Math.round(vals[2] * imageWidth), 4),
+      Math.max(Math.round(vals[3] * imageHeight), 4),
+    ];
+  }
+
+  // Format B: Gemini's native [y_min, x_min, y_max, x_max] in 0–1000
+  // Heuristic: in this format vals[2] > vals[0] AND vals[3] > vals[1] (corners increase),
+  // AND vals[2]+vals[3] are larger than vals[0]+vals[1] by a meaningful amount.
+  if (allLeq1000 && maxVal > 1 && vals[2] > vals[0] && vals[3] > vals[1]) {
+    const y1 = (vals[0] / 1000) * imageHeight;
+    const x1 = (vals[1] / 1000) * imageWidth;
+    const y2 = (vals[2] / 1000) * imageHeight;
+    const x2 = (vals[3] / 1000) * imageWidth;
+    return [
+      Math.round(x1),
+      Math.round(y1),
+      Math.max(Math.round(x2 - x1), 4),
+      Math.max(Math.round(y2 - y1), 4),
+    ];
+  }
+
+  // Format C: raw pixels [x, y, w, h]
+  return [
+    Math.max(0, Math.round(vals[0])),
+    Math.max(0, Math.round(vals[1])),
+    Math.max(Math.round(vals[2]), 4),
+    Math.max(Math.round(vals[3]), 4),
+  ];
+}
+
 function parseGeminiRegions(raw: string, imageWidth: number, imageHeight: number): TextRegionEntry[] {
   const cleaned = raw
     .replace(/```json\s*/gi, "")
@@ -49,29 +103,12 @@ function parseGeminiRegions(raw: string, imageWidth: number, imageHeight: number
       let bbox: [number, number, number, number];
       if (Array.isArray(r.bbox) && r.bbox.length >= 4) {
         const vals = r.bbox.map((v) => Number(v));
-        const allNormalized = vals.every((v) => v >= 0 && v <= 1);
-        const maybeNormalized = vals[0] <= 1 && vals[1] <= 1 && vals[2] <= 1 && vals[3] <= 1;
-
-        if (allNormalized || maybeNormalized) {
-          bbox = [
-            Math.round(vals[0] * imageWidth),
-            Math.round(vals[1] * imageHeight),
-            Math.max(Math.round(vals[2] * imageWidth), 4),
-            Math.max(Math.round(vals[3] * imageHeight), 4),
-          ];
-        } else {
-          bbox = sanitizeBbox(
-            [
-              Math.round(vals[0]),
-              Math.round(vals[1]),
-              Math.max(Math.round(vals[2]), 4),
-              Math.max(Math.round(vals[3]), 4),
-            ],
-            r.text!.trim(),
-            imageWidth,
-            imageHeight
-          );
-        }
+        bbox = sanitizeBbox(
+          decodeBboxToPixels(vals, imageWidth, imageHeight),
+          r.text!.trim(),
+          imageWidth,
+          imageHeight
+        );
       } else {
         bbox = sanitizeBbox(
           [
@@ -136,10 +173,19 @@ Return ONLY JSON:
 {"regions":[{"text":"Insulin","bbox":[0.052,0.118,0.072,0.022],"confidence":0.93}]}
 
 CRITICAL bbox rules — bbox = [x, y, width, height] ALL normalized 0.0–1.0 relative to the FULL image:
-- x,y = top-left corner of the text ink (NOT center, NOT x2/y2 corner coords)
-- width = horizontal span of the text (width > height for horizontal labels)
-- height = vertical span of ONE line (typically 0.012–0.04)
-- Do NOT return [x1,y1,x2,y2] corner pairs
+- x = LEFT edge of text in image (NOT center, NOT right edge) — fraction of image width
+- y = TOP edge of text in image (NOT center, NOT bottom edge) — fraction of image height
+- width = horizontal span of the text (width > height for horizontal labels) — typically 0.02–0.20
+- height = vertical span of ONE line — typically 0.012–0.04
+- DO NOT return [y_min, x_min, y_max, x_max] (Gemini object-detection format) — we need [x, y, w, h]
+- DO NOT return integers in 0–1000 range — values MUST be decimals between 0.0 and 1.0
+- DO NOT return [x1, y1, x2, y2] corner pairs
+
+Example for an image where "METTL3" text starts at horizontal 28% and vertical 15%, with text 6% wide and 2% tall:
+  {"text": "METTL3", "bbox": [0.28, 0.15, 0.06, 0.02], "confidence": 0.95}
+
+Self-check before responding: bbox[0]+bbox[2] must be ≤ 1.0 (text fits in image width)
+                                bbox[1]+bbox[3] must be ≤ 1.0 (text fits in image height)
 
 Be EXHAUSTIVE — detect EVERY readable text string in the diagram, including:
 - Panel titles (e.g. "Panel A: ...")
