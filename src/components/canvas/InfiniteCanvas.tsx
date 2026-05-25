@@ -519,55 +519,77 @@ export default function InfiniteCanvas() {
                 </div>
               )}
 
-              {el.type === "text" && (
-                <div
-                  contentEditable={isEditing}
-                  suppressContentEditableWarning
-                  className={isDetected ? "outline-none rounded flex items-center justify-center" : "w-full outline-none px-0.5 py-0 rounded"}
-                  style={{
-                    ...textStyles(el),
-                    color: isDetected ? "#111827" : (textStyles(el).color as string),
-                    width: isDetected ? "100%" : undefined,
-                    height: isDetected ? "100%" : undefined,
-                    outline: isDetected
-                      ? isSelected || isEditing
-                        ? "2px solid #6366f1"
-                        : "1px dashed rgba(99,102,241,0.25)"
-                      : isSelected
-                        ? "2px solid #6366f1"
-                        : "1px dashed rgba(99,102,241,0.3)",
-                    outlineOffset: isDetected ? 0 : 2,
-                    minHeight: el.height,
-                    whiteSpace: isDetected ? "nowrap" : "pre-wrap",
-                    wordBreak: isDetected ? "normal" : "break-word",
-                    textAlign: isDetected ? "center" : undefined,
-                    background: isDetected
-                      ? "#ffffff"
-                      : isEditing
-                        ? "rgba(99,102,241,0.06)"
+              {el.type === "text" && (() => {
+                // ── FigureLabs-style rendering for OCR-detected labels ──
+                // Default state = TRANSPARENT click target (just a thin border).
+                // No white mask, no rendered text. The original baked-in text
+                // in the AI image shows through cleanly, so no duplicates.
+                //
+                // Active states (selected / editing / user-edited):
+                //   the element switches to a SOLID white mask with the
+                //   current text rendered on top — masking the original.
+                const hasUserEdit = isDetected && el.originalContent !== undefined
+                  && el.content !== el.originalContent;
+                const showMask = isDetected
+                  ? (isSelected || isEditing || hasUserEdit)
+                  : true;
+                const showText = isDetected ? showMask : true;
+
+                return (
+                  <div
+                    contentEditable={isEditing}
+                    suppressContentEditableWarning
+                    className={isDetected ? "outline-none rounded flex items-center justify-center" : "w-full outline-none px-0.5 py-0 rounded"}
+                    style={{
+                      ...textStyles(el),
+                      // Hide text content when not masked so the original baked
+                      // raster text reads cleanly. Re-show as dark slate when
+                      // actively edited / selected.
+                      color: isDetected
+                        ? (showText ? "#111827" : "transparent")
+                        : (textStyles(el).color as string),
+                      width: isDetected ? "100%" : undefined,
+                      height: isDetected ? "100%" : undefined,
+                      outline: isDetected
+                        ? isSelected || isEditing
+                          ? "2px solid #6366f1"
+                          : hasUserEdit
+                            ? "1px solid rgba(99,102,241,0.4)"
+                            : "1px dashed rgba(99,102,241,0.35)"
                         : isSelected
-                          ? "rgba(99,102,241,0.04)"
+                          ? "2px solid #6366f1"
+                          : "1px dashed rgba(99,102,241,0.3)",
+                      outlineOffset: isDetected ? 0 : 2,
+                      minHeight: el.height,
+                      whiteSpace: isDetected ? "nowrap" : "pre-wrap",
+                      wordBreak: isDetected ? "normal" : "break-word",
+                      textAlign: isDetected ? "center" : undefined,
+                      // ★ KEY FIX: only paint white when actively edited.
+                      // Default detected label = TRANSPARENT — original image
+                      // text shows through, no duplicate, no ghost.
+                      background: !isDetected
+                        ? (isEditing ? "rgba(99,102,241,0.06)" : isSelected ? "rgba(99,102,241,0.04)" : "transparent")
+                        : showMask
+                          ? "#ffffff"
                           : "transparent",
-                    // Detected labels get a 3-layer white halo so the original
-                    // baked-in raster text in the AI image underneath is
-                    // fully obliterated even when Gemini's bbox is offset.
-                    boxShadow: isDetected
-                      ? "0 0 0 2px #ffffff, 0 0 0 4px #ffffff, 0 0 8px 6px rgba(255,255,255,0.95)"
-                      : undefined,
-                  }}
-                  onBlur={(e) => {
-                    if (isEditing) finishEditing(el.id, e.currentTarget.textContent || "");
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape") {
-                      e.currentTarget.blur();
-                      setEditingId(null);
-                    }
-                  }}
-                >
-                  {el.content || el.label || "Text"}
-                </div>
-              )}
+                      boxShadow: isDetected && showMask
+                        ? "0 0 0 2px #ffffff, 0 0 0 4px #ffffff, 0 0 8px 6px rgba(255,255,255,0.95)"
+                        : undefined,
+                    }}
+                    onBlur={(e) => {
+                      if (isEditing) finishEditing(el.id, e.currentTarget.textContent || "");
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") {
+                        e.currentTarget.blur();
+                        setEditingId(null);
+                      }
+                    }}
+                  >
+                    {el.content || el.label || "Text"}
+                  </div>
+                );
+              })()}
 
               {el.type === "image" && el.content && (
                 <div

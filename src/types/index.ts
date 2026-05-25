@@ -43,6 +43,10 @@ export interface CanvasElement {
   assetDescription?: string;
   biomedicalCategory?: string;
   assetEmoji?: string;
+  /** OCR-detected text — the original content at detection time. If the
+   *  user edits the label, content diverges from originalContent and we
+   *  switch from "transparent click target" to "white mask + new text". */
+  originalContent?: string;
 }
 
 export interface Layer {

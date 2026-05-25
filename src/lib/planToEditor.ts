@@ -307,6 +307,10 @@ function addDetectedLabelsFromManifest(
       locked: false,
       visible: true,
       content: r.text,
+      // Sentinel for "no edit applied yet" — InfiniteCanvas uses this to
+      // decide whether to show a transparent click target (FigureLabs style)
+      // or a white mask with new text (only after user edits).
+      originalContent: r.text,
       fill: "#111827",
       zIndex: z++,
     });
