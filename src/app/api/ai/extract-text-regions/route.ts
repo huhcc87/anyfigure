@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { FigurePlan } from "@/components/figures/FigureRenderer";
 import { enrichPlanWithVisionDirect } from "@/lib/makeEditable/enrichPlanVision";
 
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 export async function POST(req: Request) {
   try {

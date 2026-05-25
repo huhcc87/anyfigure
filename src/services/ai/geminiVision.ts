@@ -41,6 +41,25 @@ function decodeBboxToPixels(
 
   // Format A: normalized 0–1 [x, y, w, h]
   if (allLeqOne) {
+    // Auto-detect [x1, y1, x2, y2] corner format hidden inside 0–1 range:
+    // if vals[2] > vals[0] AND vals[3] > vals[1] AND BOTH would make w > 0.3 or h > 0.1
+    // (impossibly large for a single label), treat as corners.
+    const asW = vals[2];
+    const asH = vals[3];
+    const looksLikeCorners =
+      vals[2] > vals[0] &&
+      vals[3] > vals[1] &&
+      (asW > 0.35 || asH > 0.08) &&
+      vals[2] - vals[0] < 0.5 &&
+      vals[3] - vals[1] < 0.1;
+    if (looksLikeCorners) {
+      return [
+        Math.round(vals[0] * imageWidth),
+        Math.round(vals[1] * imageHeight),
+        Math.max(Math.round((vals[2] - vals[0]) * imageWidth), 4),
+        Math.max(Math.round((vals[3] - vals[1]) * imageHeight), 4),
+      ];
+    }
     return [
       Math.round(vals[0] * imageWidth),
       Math.round(vals[1] * imageHeight),
@@ -153,7 +172,9 @@ export async function extractTextFromFigureImage(
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY not set");
 
-  const model = process.env.GEMINI_TEXT_MODEL || "gemini-2.5-flash";
+  // Gemini 2.5 Pro is significantly more accurate at spatial bbox detection
+  // on dense scientific figures than Flash. The cost is worth the accuracy.
+  const model = process.env.GEMINI_TEXT_MODEL || "gemini-2.5-pro";
 
   let data: string;
   let mimeType: string;
@@ -167,25 +188,41 @@ export async function extractTextFromFigureImage(
 
   const { width: imageWidth, height: imageHeight } = await resolveImageDimensions(data, mimeType);
 
-  const prompt = `You analyze a scientific figure (${imageWidth}×${imageHeight}px) for a text editor overlay.
+  const prompt = `You are a precise OCR system. Analyze this scientific figure (${imageWidth}×${imageHeight}px) and return the pixel location of EVERY visible text label so we can draw an editable text box exactly on top of it.
 
-Return ONLY JSON:
-{"regions":[{"text":"Insulin","bbox":[0.052,0.118,0.072,0.022],"confidence":0.93}]}
+OUTPUT FORMAT — return ONLY this JSON shape, nothing else:
+{"regions":[
+  {"text":"METTL3","bbox":[0.28,0.15,0.06,0.02],"confidence":0.95},
+  {"text":"H3K4me3","bbox":[0.45,0.32,0.08,0.018],"confidence":0.93}
+]}
 
-CRITICAL bbox rules — bbox = [x, y, width, height] ALL normalized 0.0–1.0 relative to the FULL image:
-- x = LEFT edge of text in image (NOT center, NOT right edge) — fraction of image width
-- y = TOP edge of text in image (NOT center, NOT bottom edge) — fraction of image height
-- width = horizontal span of the text (width > height for horizontal labels) — typically 0.02–0.20
-- height = vertical span of ONE line — typically 0.012–0.04
-- DO NOT return [y_min, x_min, y_max, x_max] (Gemini object-detection format) — we need [x, y, w, h]
-- DO NOT return integers in 0–1000 range — values MUST be decimals between 0.0 and 1.0
-- DO NOT return [x1, y1, x2, y2] corner pairs
+═══ THE bbox FIELD — READ CAREFULLY ═══
 
-Example for an image where "METTL3" text starts at horizontal 28% and vertical 15%, with text 6% wide and 2% tall:
-  {"text": "METTL3", "bbox": [0.28, 0.15, 0.06, 0.02], "confidence": 0.95}
+bbox = [x, y, width, height] where ALL four numbers are DECIMAL fractions between 0.0 and 1.0
 
-Self-check before responding: bbox[0]+bbox[2] must be ≤ 1.0 (text fits in image width)
-                                bbox[1]+bbox[3] must be ≤ 1.0 (text fits in image height)
+  • x      = fraction from the LEFT edge of the image to the LEFT edge of the text glyphs
+  • y      = fraction from the TOP edge of the image to the TOP edge of the text glyphs
+  • width  = fraction of image width covered horizontally by the text
+  • height = fraction of image height covered vertically by ONE LINE of text
+
+CORRECT EXAMPLE: text "METTL3" is rendered in the image with its leftmost pixel at horizontal position 28% across, its topmost pixel at 15% down, spans 6% of the image width and 2% of the image height.
+  → CORRECT: {"text":"METTL3","bbox":[0.28, 0.15, 0.06, 0.02]}
+
+═══ FORMATS THAT WILL BREAK THE EDITOR — NEVER RETURN THESE ═══
+
+WRONG: [280, 150, 340, 170]                — pixels, or 0-1000 corners. We need fractions 0-1.
+WRONG: [0.15, 0.28, 0.17, 0.34]            — y_min,x_min,y_max,x_max (Gemini's native format). Axes are SWAPPED and these are corners not w/h.
+WRONG: [0.28, 0.15, 0.34, 0.17]            — x1,y1,x2,y2 corners. We need width/height not the second corner.
+WRONG: [0.31, 0.16, 0.06, 0.02]            — bbox centered on the text instead of anchored to the top-left. Subtract w/2 from x and h/2 from y if you computed center.
+
+═══ SELF-CHECK before responding ═══
+
+For EVERY region you output, verify:
+  ✓ Each of x, y, w, h is a decimal between 0.0 and 1.0 (no integers, no values > 1)
+  ✓ w < 0.35 for single-word labels (text rarely spans more than a third of the image)
+  ✓ h is small: 0.010 < h < 0.05 (one line of text is thin)
+  ✓ x + w ≤ 1.0 and y + h ≤ 1.0
+  ✓ The bbox top-left corner sits at the top-left pixel of the FIRST glyph — not the center
 
 Be EXHAUSTIVE — detect EVERY readable text string in the diagram, including:
 - Panel titles (e.g. "Panel A: ...")
@@ -200,60 +237,83 @@ Be EXHAUSTIVE — detect EVERY readable text string in the diagram, including:
 Only EXCLUDE: multi-sentence paragraph captions at the very bottom (3+ sentences), and duplicate entries at the same spot.
 Use exact text as shown. Aim for 40–80 regions on complex pathway diagrams.`;
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 90000);
-
-  try {
-    const res = await fetch(`${GEMINI_BASE}/models/${model}:generateContent`, {
-      method: "POST",
-      signal: controller.signal,
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": apiKey,
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: "user",
-            parts: [{ inlineData: { mimeType, data } }, { text: prompt }],
-          },
-        ],
-        generationConfig: {
-          temperature: 0.1,
-          responseMimeType: "application/json",
-          maxOutputTokens: 8192,
+  // Try Pro first (better accuracy); fall back to Flash if Pro errors / no regions
+  // (e.g. account not entitled to Pro, or quota exhaustion).
+  const runWithModel = async (modelName: string): Promise<TextRegionEntry[]> => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 180000);
+    try {
+      const res = await fetch(`${GEMINI_BASE}/models/${modelName}:generateContent`, {
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": apiKey,
         },
-      }),
-    });
+        body: JSON.stringify({
+          contents: [
+            {
+              role: "user",
+              parts: [{ inlineData: { mimeType, data } }, { text: prompt }],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.05,
+            responseMimeType: "application/json",
+            maxOutputTokens: 8192,
+          },
+        }),
+      });
 
-    const body = (await res.json()) as {
-      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-      error?: { message?: string };
-    };
+      const body = (await res.json()) as {
+        candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+        error?: { message?: string };
+      };
 
-    if (!res.ok) {
-      throw new Error(body.error?.message || `Gemini vision error (${res.status})`);
+      if (!res.ok) {
+        throw new Error(body.error?.message || `Gemini vision error (${res.status})`);
+      }
+
+      const text = body.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
+      return parseGeminiRegions(text, imageWidth, imageHeight);
+    } finally {
+      clearTimeout(timeout);
     }
+  };
 
-    const text = body.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
-    const raw = parseGeminiRegions(text, imageWidth, imageHeight);
-    const regions = cleanTextRegions(raw, imageWidth, imageHeight, options?.excludeTexts).map((r) => ({
-      ...r,
-      panelId: options?.panelId,
-    }));
-
-    return {
-      manifest: {
-        imageWidth,
-        imageHeight,
-        regions,
-        model,
-        extractedAt: Date.now(),
-        manifestVersion: TEXT_MANIFEST_VERSION,
-      },
-      model,
-    };
-  } finally {
-    clearTimeout(timeout);
+  let raw: TextRegionEntry[] = [];
+  let usedModel = model;
+  try {
+    raw = await runWithModel(model);
+    if (raw.length === 0 && model !== "gemini-2.5-flash") {
+      console.warn(`[gemini-vision] ${model} returned 0 regions, falling back to flash`);
+      raw = await runWithModel("gemini-2.5-flash");
+      usedModel = "gemini-2.5-flash";
+    }
+  } catch (err) {
+    if (model !== "gemini-2.5-flash") {
+      console.warn(`[gemini-vision] ${model} failed (${String(err)}), falling back to flash`);
+      raw = await runWithModel("gemini-2.5-flash");
+      usedModel = "gemini-2.5-flash";
+    } else {
+      throw err;
+    }
   }
+
+  const regions = cleanTextRegions(raw, imageWidth, imageHeight, options?.excludeTexts).map((r) => ({
+    ...r,
+    panelId: options?.panelId,
+  }));
+
+  return {
+    manifest: {
+      imageWidth,
+      imageHeight,
+      regions,
+      model: usedModel,
+      extractedAt: Date.now(),
+      manifestVersion: TEXT_MANIFEST_VERSION,
+    },
+    model: usedModel,
+  };
 }

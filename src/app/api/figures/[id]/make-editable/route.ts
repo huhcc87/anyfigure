@@ -3,7 +3,7 @@ import type { FigurePlan } from "@/components/figures/FigureRenderer";
 import { buildEditableAssets } from "@/lib/makeEditable/buildEditableAssets";
 import { enrichPlanWithVisionDirect } from "@/lib/makeEditable/enrichPlanVision";
 
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 export async function POST(
   req: Request,
