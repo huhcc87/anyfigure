@@ -779,8 +779,10 @@ export default function InfiniteCanvas() {
                 <path d="M9 14h10M14 9v10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
               </svg>
             </div>
-            <p className="text-sm text-gray-600 font-medium">Generate a figure in AI Studio, then click Open in Studio</p>
-            <p className="text-xs text-gray-400 mt-1">Double-click title, caption, or legend to edit text</p>
+            <p className="text-sm text-gray-700 font-medium">Empty canvas — generate a figure or add elements</p>
+            <p className="text-xs text-gray-500 mt-1">
+              Use the prompt bar above (Vector AI), or drag in biomedical assets from the left panel.
+            </p>
           </div>
         </div>
       )}

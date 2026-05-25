@@ -12,7 +12,7 @@ import type { PathwayTemplate } from "@/data/biomedicalPathwayTemplates";
 import { createBiomedicalCanvasElement } from "@/utils/createBiomedicalCanvasElement";
 import { getAssetById } from "@/data/biomedicalAssets";
 import { useEditorStore } from "@/store/editorStore";
-import { loadPlanForWorkspace, clearSessionPlanOnly, cacheEditPlan } from "@/lib/figureStore";
+import { loadPlanForWorkspace, clearSessionPlanOnly, cacheEditPlan, loadFigurePlanIdb } from "@/lib/figureStore";
 import type { ChartData } from "@/types";
 
 const InfiniteCanvas = dynamic(() => import("@/components/canvas/InfiniteCanvas"), {
@@ -125,12 +125,45 @@ export default function WorkspacePage() {
     }
   }, [aiPrompt, loadFromSceneGraph]);
 
-  // Load handoff from Home (vector scene graph) OR Studio (FigurePlan).
+  // Load handoff: URL ?figure= / ?scene= → sessionStorage → IDB → workspace-cache.
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
-        // 1. Prefer the vector-first scene graph if Home just handed one off.
+        // 0. URL-driven load — user clicked a Recent project card on Home,
+        //    which navigates to /workspace?figure=<id> or ?scene=<id>.
+        //    Read the param and pull the full plan straight from IndexedDB.
+        const params = typeof window !== "undefined" ? new URL(window.location.href).searchParams : null;
+        const urlId = params?.get("figure") || params?.get("scene") || null;
+        if (urlId) {
+          const fromIdb = await loadFigurePlanIdb(urlId);
+          if (!cancelled && fromIdb) {
+            const sceneGraph = (fromIdb as unknown as { sceneGraph?: { elements?: unknown[] } })?.sceneGraph;
+            if (sceneGraph?.elements?.length) {
+              loadFromSceneGraph(sceneGraph as never);
+              toast.success(`Loaded ${sceneGraph.elements.length} editable vector elements`);
+            } else if (fromIdb.panels?.length) {
+              loadFromFigurePlan(fromIdb);
+              const labelCount = fromIdb.panels.reduce(
+                (n, p) => n + (p.textNodesManifest?.regions?.length ?? 0), 0
+              );
+              const hasRasterImage = fromIdb.panels.some((p) => !!p.imageUrl);
+              if (labelCount > 0) {
+                toast.success(`Loaded ${labelCount} editable labels — click any to edit`);
+              } else if (hasRasterImage) {
+                setLoadedFigureId(urlId);
+                setNeedsTextExtraction(true);
+                toast.info(`Image loaded — click "Make Text Editable" to extract labels`);
+              } else {
+                toast.success(`Loaded "${fromIdb.title || "figure"}" into the canvas`);
+              }
+            }
+            setLoadingPlan(false);
+            return;
+          }
+        }
+
+        // 1. Otherwise prefer the vector-first scene graph if Home just handed one off.
         try {
           const raw = sessionStorage.getItem("anyfigure_pending_scene");
           if (raw) {
@@ -147,7 +180,7 @@ export default function WorkspacePage() {
           /* fall through to plan loader */
         }
 
-        // 2. Otherwise load any cached raster-mode plan from Studio handoff.
+        // 2. Otherwise load any cached raster-mode plan from session handoff.
         const plan = await loadPlanForWorkspace();
         if (cancelled) return;
         // 2a. The Home page also stores its scene under plan.sceneGraph as a

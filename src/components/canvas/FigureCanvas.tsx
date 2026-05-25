@@ -96,8 +96,8 @@ export default function FigureCanvas({
                   <path d="M9 14h10M14 9v10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
                 </svg>
               </div>
-              <p className="text-sm text-zinc-600 font-medium">Generate a figure in AI Studio</p>
-              <p className="text-xs text-zinc-700 mt-1">or select a tool from the left sidebar to draw</p>
+              <p className="text-sm text-zinc-700 font-medium">Empty canvas</p>
+              <p className="text-xs text-zinc-600 mt-1">Generate from the prompt bar or pick a tool to draw</p>
             </div>
           </div>
         )}
