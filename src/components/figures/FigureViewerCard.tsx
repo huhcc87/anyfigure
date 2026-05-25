@@ -368,6 +368,54 @@ export function FigureViewerCard({
           onEditsChange={setPendingEdits}
           onRescan={hasAnyImage ? () => void rescanLabels() : undefined}
           committedEdits={appliedEdits}
+          onBboxNudge={(panelId, regionId, dx, dy) => {
+            // Convert DOM-pixel drag delta back to image-pixel delta using the
+            // same scale used to render the manifest, then persist into the plan.
+            setDisplayPlan((prev) => {
+              if (!prev.panels) return prev;
+              const nextPanels = prev.panels.map((p) => {
+                const pid = p.id || p.label || "main";
+                if (pid !== panelId || !p.textNodesManifest) return p;
+                // Look up the rendered image to derive DOM→pixel scale
+                const img =
+                  (previewEl?.querySelector(`[data-figure-image="${pid}"]`) as HTMLImageElement | null) ||
+                  (previewEl?.querySelector("[data-figure-image]") as HTMLImageElement | null);
+                if (!img || img.naturalWidth === 0) return p;
+                const layout = img.getBoundingClientRect();
+                const scale = Math.min(
+                  layout.width / img.naturalWidth,
+                  layout.height / img.naturalHeight
+                );
+                if (!scale) return p;
+                const pdx = dx / scale;
+                const pdy = dy / scale;
+                return {
+                  ...p,
+                  textNodesManifest: {
+                    ...p.textNodesManifest,
+                    regions: p.textNodesManifest.regions.map((r) =>
+                      r.id === regionId
+                        ? {
+                            ...r,
+                            bbox: [
+                              Math.max(0, Math.round(r.bbox[0] + pdx)),
+                              Math.max(0, Math.round(r.bbox[1] + pdy)),
+                              r.bbox[2],
+                              r.bbox[3],
+                            ] as typeof r.bbox,
+                            userPositioned: true,
+                          }
+                        : r
+                    ),
+                  },
+                };
+              });
+              const nextPlan: FigurePlan = { ...prev, panels: nextPanels };
+              void cacheEditPlan(figureId, nextPlan);
+              onPlanUpdate?.(nextPlan);
+              return nextPlan;
+            });
+          }}
         />
       </div>
 

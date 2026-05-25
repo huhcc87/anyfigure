@@ -35,6 +35,10 @@ interface TextEditOverlayProps {
   onRetry?: () => void;
   onEditsChange?: (edits: Record<string, string>) => void;
   onRescan?: () => void;
+  /** Persist a corrected bbox back into the manifest (drag-to-fix). dx,dy are in
+   *  container DOM pixels — caller maps to image pixels using the same scale used
+   *  for measurement. */
+  onBboxNudge?: (panelId: string, regionId: string, dx: number, dy: number) => void;
   /** Already-applied label edits (persisted on plan manifest). */
   committedEdits?: Record<string, string>;
 }
@@ -143,6 +147,7 @@ export const TextEditOverlay = memo(function TextEditOverlay({
   onRetry,
   onEditsChange,
   onRescan,
+  onBboxNudge,
   committedEdits = {},
 }: TextEditOverlayProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -151,6 +156,16 @@ export const TextEditOverlay = memo(function TextEditOverlay({
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [applying, setApplying] = useState(false);
   const [domNodes, setDomNodes] = useState<TextNode[]>([]);
+  /** Per-node DOM offset (in container pixels) applied during drag — committed
+   *  to the manifest via onBboxNudge on mouseup. Lets the user nudge any
+   *  misaligned Gemini-detected label onto the correct text. */
+  const [dragOffsets, setDragOffsets] = useState<Record<string, { dx: number; dy: number }>>({});
+  const dragStateRef = useRef<{
+    id: string;
+    startX: number;
+    startY: number;
+    moved: boolean;
+  } | null>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
 
   const useDom = !!domContainer;
@@ -193,37 +208,105 @@ export const TextEditOverlay = memo(function TextEditOverlay({
     [edits]
   );
 
-  /** Handle click on the overlay — use coordinate hit-testing to find which label. */
-  const handleOverlayClick = useCallback(
+  /** mouseDown — start a potential drag. We don't know yet whether this is a
+   *  click (single-click → edit) or a drag (move label). Decision is made on
+   *  mouseUp based on how far the cursor moved. */
+  const handleOverlayMouseDown = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
-      if (selectedId) return; // Modal is open, ignore overlay clicks
+      if (selectedId) return;
       const rect = e.currentTarget.getBoundingClientRect();
-      const clickX = e.clientX - rect.left;
-      const clickY = e.clientY - rect.top;
-      const hit = hitTestNodes(nodes, clickX, clickY);
-      if (hit) {
-        console.log("[TextEditOverlay] hit-test matched:", hit.id, hit.text);
-        handleSelect(hit);
-      }
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      // Account for current drag-offset when hit-testing so the user can grab
+      // a label they have already nudged.
+      const adjustedNodes = nodes.map((n) => {
+        const off = dragOffsets[n.id];
+        if (!off) return n;
+        return { ...n, bbox: { ...n.bbox, x: n.bbox.x + off.dx, y: n.bbox.y + off.dy } };
+      });
+      const hit = hitTestNodes(adjustedNodes, x, y);
+      if (!hit) return;
+      dragStateRef.current = { id: hit.id, startX: x, startY: y, moved: false };
+      e.preventDefault();
     },
-    [nodes, handleSelect, selectedId]
+    [nodes, dragOffsets, selectedId]
   );
 
-  /** Track hover via mouse position over overlay. */
   const handleOverlayMouseMove = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       if (selectedId) return;
       const rect = e.currentTarget.getBoundingClientRect();
-      const mx = e.clientX - rect.left;
-      const my = e.clientY - rect.top;
-      const hit = hitTestNodes(nodes, mx, my);
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const drag = dragStateRef.current;
+
+      if (drag) {
+        const dx = x - drag.startX;
+        const dy = y - drag.startY;
+        // Treat as a drag once cursor moves > 3 px
+        if (drag.moved || Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+          drag.moved = true;
+          setDragOffsets((prev) => {
+            const existing = prev[drag.id] ?? { dx: 0, dy: 0 };
+            return { ...prev, [drag.id]: { dx: existing.dx + dx, dy: existing.dy + dy } };
+          });
+          // Reset reference so subsequent moves are deltas, not cumulative
+          drag.startX = x;
+          drag.startY = y;
+        }
+        return;
+      }
+
+      // Pure hover (no drag in progress)
+      const adjustedNodes = nodes.map((n) => {
+        const off = dragOffsets[n.id];
+        if (!off) return n;
+        return { ...n, bbox: { ...n.bbox, x: n.bbox.x + off.dx, y: n.bbox.y + off.dy } };
+      });
+      const hit = hitTestNodes(adjustedNodes, x, y);
       setHoveredId(hit?.id ?? null);
     },
-    [nodes, selectedId]
+    [nodes, dragOffsets, selectedId]
+  );
+
+  const handleOverlayMouseUp = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const drag = dragStateRef.current;
+      dragStateRef.current = null;
+      if (!drag) return;
+
+      const node = nodes.find((n) => n.id === drag.id);
+      if (!node) return;
+
+      if (drag.moved) {
+        // Was a drag — persist the bbox nudge to the manifest so the new
+        // position survives re-renders, edits, and exports.
+        const off = dragOffsets[drag.id];
+        if (off && onBboxNudge && node.panel_id) {
+          onBboxNudge(node.panel_id, node.id, off.dx, off.dy);
+          // Local offset can be cleared now — the manifest itself will hold
+          // the new bbox once the parent re-measures.
+          setDragOffsets((prev) => {
+            const next = { ...prev };
+            delete next[drag.id];
+            return next;
+          });
+        }
+      } else {
+        // Was a click — open the edit modal
+        handleSelect(node);
+      }
+      e.stopPropagation();
+    },
+    [nodes, dragOffsets, handleSelect, onBboxNudge]
   );
 
   const handleOverlayMouseLeave = useCallback(() => {
     setHoveredId(null);
+    // Cancel any in-progress drag if cursor leaves
+    if (dragStateRef.current && !dragStateRef.current.moved) {
+      dragStateRef.current = null;
+    }
   }, []);
 
   const saveEdit = useCallback(() => {
@@ -321,25 +404,27 @@ export const TextEditOverlay = memo(function TextEditOverlay({
     <>
       {showDiagramHint && (
         <div className="absolute top-2 left-2 z-[55] pointer-events-none">
-          <p className="text-[10px] text-slate-600 bg-white/95 px-2.5 py-1 rounded-full border border-slate-200 shadow-sm max-w-[240px] leading-snug">
-            Click a label to edit diagram text
+          <p className="text-[10px] text-slate-700 bg-white/95 px-2.5 py-1 rounded-full border border-slate-200 shadow-sm max-w-[280px] leading-snug">
+            <strong>Click</strong> a label to edit · <strong>Drag</strong> to fix misaligned boxes
           </p>
         </div>
       )}
 
       {/* ─── SOLID CLICK-CATCHING OVERLAY ─── */}
       {/* This div catches ALL mouse events via pointer-events:auto.
-          Hit-testing is done via coordinates, not DOM stacking. */}
+          Hit-testing is done via coordinates, not DOM stacking.
+          Click = edit text · Drag = nudge bbox onto correct text */}
       {useDom ? (
         <div
           ref={overlayRef}
-          className="absolute inset-0 z-[50]"
+          className="absolute inset-0 z-[50] select-none"
           style={{
             pointerEvents: "auto",
-            cursor: hoveredId ? "pointer" : "crosshair",
+            cursor: hoveredId ? (dragStateRef.current ? "grabbing" : "grab") : "crosshair",
             background: "rgba(0, 150, 200, 0.03)",
           }}
-          onClick={handleOverlayClick}
+          onMouseDown={handleOverlayMouseDown}
+          onMouseUp={handleOverlayMouseUp}
           onMouseMove={handleOverlayMouseMove}
           onMouseLeave={handleOverlayMouseLeave}
         >
@@ -379,17 +464,20 @@ export const TextEditOverlay = memo(function TextEditOverlay({
               bgColor = "transparent";
             }
 
+            const off = dragOffsets[node.id];
+            const renderX = off ? x + off.dx : x;
+            const renderY = off ? y + off.dy : y;
             return (
               <div
                 key={node.id}
                 className={`absolute rounded pointer-events-none ${borderClass}`}
                 style={{
-                  left: x,
-                  top: y,
+                  left: renderX,
+                  top: renderY,
                   width: Math.max(w, 12),
                   height: Math.max(h, 10),
                   background: isEdited ? "#ffffff" : bgColor,
-                  transition: "background 150ms, border-color 150ms",
+                  transition: off ? "none" : "background 150ms, border-color 150ms",
                 }}
               >
                 {isEdited && isDiagram && (

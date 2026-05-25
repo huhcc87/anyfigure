@@ -12,6 +12,8 @@ export interface TextRegionEntry {
   originalText?: string;
   /** True after the user applies an edit to this region. */
   userEdited?: boolean;
+  /** True after the user manually drags the bbox to a new position. */
+  userPositioned?: boolean;
 }
 
 /** Cached text-region manifest for one panel image. */
