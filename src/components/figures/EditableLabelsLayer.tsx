@@ -47,24 +47,27 @@ function measureLabels(
       const layout = mapPixelBboxToContainerRect(bbox, img, container, synced.imageWidth, synced.imageHeight);
       const text = edits[r.id] ?? r.text;
 
-      // ── AGGRESSIVE MASK SIZING ──
-      // Gemini Vision bboxes are tight to the text glyphs and often
-      // off-center by 5-20 px. The original raster text plus anti-aliasing
-      // halo can extend ~25-40 % of the text height past the bbox in every
-      // direction. We need the mask to cover BOTH the originally-bboxed
-      // region AND the leaked raster text around it.
+      // ── MASK MUST COVER FULL RASTER TEXT ──
+      // Gemini Vision bboxes hug glyph centers (a 10-pt tight box) but the
+      // actual rendered raster text in scientific figures is often 16-32 pt
+      // with anti-aliased halos that extend ~50-100 % of the bbox height
+      // past it in every direction. Our masks must be MUCH larger than the
+      // detected bbox to fully cover.
       //
-      // Strategy: grow generously and center the mask on the bbox CENTER
-      // (not anchor it to top-left) so growth is symmetric.
-      const fontSize = Math.max(8, Math.min(16, Math.round(layout.h * 0.85)));
-      // Width must accommodate the longer of (original bbox width) and
-      // (rendered edit text width @ this font).
-      const estimatedTextW = text.length * fontSize * 0.58 + 12;
+      // We pick a font size that matches what the raster text looks like
+      // (around 1.6× the detected height — biased upward) and grow the
+      // mask to ~3× the bbox width and ~3× the bbox height, centered.
+      const fontSize = Math.max(10, Math.min(22, Math.round(layout.h * 1.05)));
+      const estimatedTextW = text.length * fontSize * 0.6 + 16;
       const baseW = Math.max(layout.w, estimatedTextW);
-      const baseH = Math.max(layout.h, fontSize * 1.4);
-      // Expansion: at LEAST 18 px or 35 % of the larger dimension on EACH side.
-      const padX = Math.max(18, baseW * 0.35);
-      const padY = Math.max(12, baseH * 0.55);
+      const baseH = Math.max(layout.h, fontSize * 1.6);
+      // Aggressive symmetric expansion. These constants are tuned so a
+      // typical 60×16 bbox produces a ~140×60 mask — wide enough to cover
+      // raster text 2-3× the bbox size even when Gemini's bbox is offset
+      // by 15-25 px. Masks will overlap in dense diagrams; that's the
+      // correct trade-off vs leaving original raster text visible.
+      const padX = Math.max(36, baseW * 0.85);
+      const padY = Math.max(24, baseH * 1.1);
 
       const cx = layout.x + layout.w / 2;
       const cy = layout.y + layout.h / 2;
