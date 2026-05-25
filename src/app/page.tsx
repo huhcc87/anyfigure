@@ -44,9 +44,17 @@ export default function HomePage() {
     let cancelled = false;
     void (async () => {
       let list = loadRecentFigures();
-      if (list.length === 0) {
-        const recovered = await recoverFigureListFromIdb();
-        if (recovered.length > 0) list = recovered;
+      // Always merge in IDB-resident figures so old saves resurface.
+      const recovered = await recoverFigureListFromIdb();
+      if (recovered.length > 0) {
+        const seen = new Set(list.map((f) => f.id));
+        const extras = recovered.filter((f) => !seen.has(f.id));
+        if (extras.length > 0) {
+          list = pruneRecentFigures([...list, ...extras]);
+          void saveRecentFigures(list);
+        } else if (list.length === 0) {
+          list = recovered;
+        }
       }
       const hydrated = await hydrateStoredFigures(list);
       if (!cancelled) {
@@ -63,7 +71,6 @@ export default function HomePage() {
     setGenerating(true);
     try {
       if (model === "vector") {
-        // ─── PATH A: vector scene graph (editable schematic) ───
         toast.info("Composing vector scene graph…");
         const res = await fetch("/api/ai/generate-scene", {
           method: "POST",
@@ -71,20 +78,13 @@ export default function HomePage() {
           body: JSON.stringify({ prompt: text, numPanels: 2, scientificField: "biomedical" }),
         });
         const data = (await res.json()) as { scene?: SceneGraph; error?: string };
-        if (!res.ok || !data.scene) {
-          toast.error(data.error || "Generation failed");
-          return;
-        }
+        if (!res.ok || !data.scene) { toast.error(data.error || "Generation failed"); return; }
         try { sessionStorage.setItem(SCENE_SESSION_KEY, JSON.stringify(data.scene)); }
         catch { toast.warning("Browser storage is full — scene may not persist"); }
-
         const id = `vec-${Date.now()}`;
         const fig: StoredFigure = {
-          id, prompt: text.slice(0, 120),
-          panels: data.scene.elements?.length ?? 0,
-          mode: "vector",
-          timestamp: new Date().toISOString(),
-          editableReady: true,
+          id, prompt: text.slice(0, 120), panels: data.scene.elements?.length ?? 0,
+          mode: "vector", timestamp: new Date().toISOString(), editableReady: true,
         };
         await saveRecentFigures(pruneRecentFigures([fig, ...recent]));
         void cacheEditPlan(id, {
@@ -96,9 +96,7 @@ export default function HomePage() {
         return;
       }
 
-      // ─── PATH B: Nano Banana Pro (gemini-3-pro-image-preview raster) ───
-      toast.info("🍌 Nano Banana Pro is composing — this can take 60-150s…");
-      // Step 1: get the panel plan from DeepSeek
+      toast.info("Nano Banana Pro is composing — 60-150s for a rich figure…");
       const planRes = await fetch("/api/ai/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -108,41 +106,24 @@ export default function HomePage() {
         }),
       });
       const planData = await planRes.json();
-      if (!planRes.ok || !planData.plan) {
-        toast.error(planData.error || "Plan generation failed");
-        return;
-      }
+      if (!planRes.ok || !planData.plan) { toast.error(planData.error || "Plan failed"); return; }
       const panel = planData.plan.panels?.[0];
-      if (!panel) {
-        toast.error("Plan returned no panels");
-        return;
-      }
-      // Step 2: render with Gemini 3 Pro Image (Nano Banana Pro)
+      if (!panel) { toast.error("Plan returned no panels"); return; }
       const imgRes = await fetch("/api/ai/generate-image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          label: panel.label, description: panel.description,
-          dataContext: panel.dataContext, chartType: panel.chartType,
-          scientificField: "biomedical", aspectRatio: "16:9",
+          label: panel.label, description: panel.description, dataContext: panel.dataContext,
+          chartType: panel.chartType, scientificField: "biomedical", aspectRatio: "16:9",
           style: "flat scientific illustration", inputMode: "enhance",
         }),
       });
       const imgData = await imgRes.json();
-      if (!imgRes.ok || !imgData.url) {
-        toast.error(imgData.error || "Image generation failed");
-        return;
-      }
-      // Save as a raster figure + hand off to workspace
+      if (!imgRes.ok || !imgData.url) { toast.error(imgData.error || "Image failed"); return; }
       const id = `raster-${Date.now()}`;
-      const fullPlan = {
-        ...planData.plan,
-        mode: "image",
-        panels: [{ ...panel, imageUrl: imgData.url }],
-      };
+      const fullPlan = { ...planData.plan, mode: "image", panels: [{ ...panel, imageUrl: imgData.url }] };
       const fig: StoredFigure = {
-        id, prompt: text.slice(0, 120), panels: 1,
-        mode: "image",
+        id, prompt: text.slice(0, 120), panels: 1, mode: "image",
         timestamp: new Date().toISOString(),
         plan: fullPlan, pngUrl: imgData.url, editableReady: false,
       };
@@ -169,81 +150,75 @@ export default function HomePage() {
   ], []);
 
   return (
-    <div className="hero-3d min-h-screen text-white flex flex-col relative">
-      {/* ─── DARK GLASS NAV ─── */}
-      <DarkNav />
+    <div className="surface-editorial min-h-screen flex flex-col text-slate-900">
+      <EditorialNav />
 
-      {/* Floating organic blobs (animated) */}
-      <div className="blob blob-a" />
-      <div className="blob blob-b" />
-      <div className="blob blob-c" />
-      <div className="blob blob-d" />
-
-      {/* ─── BIOMEDICAL MOLECULE BACKDROP ─── */}
-      <MoleculeDecor />
-
-      <main className="relative z-10 flex-1 max-w-6xl mx-auto w-full px-6 pt-16 md:pt-24 pb-20">
+      <main className="flex-1 max-w-5xl mx-auto w-full px-6 pt-12 pb-20">
         {/* ─── HERO ─── */}
-        <div className="text-center mb-12">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 backdrop-blur text-[11px] text-indigo-200 font-medium mb-6">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            New · Vector scene-graph engine v2.0 is live
+        <div className="text-center mb-10">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white border border-slate-200 text-[11px] text-slate-700 font-medium mb-7 shadow-sm">
+            <span className="w-1.5 h-1.5 rounded-full bg-teal-500" />
+            Vector scene-graph engine v2.0
           </div>
-          <h1 className="text-5xl md:text-7xl font-bold tracking-tight leading-[1.05] mb-4">
+          <h1 className="text-5xl md:text-6xl font-bold tracking-tight leading-[1.05] text-slate-900 mb-5 font-display">
             Publication-ready<br />
-            <span className="gradient-text">biomedical figures.</span>
+            <span className="text-teal-700">biomedical figures.</span>
           </h1>
-          <p className="text-base md:text-lg text-slate-300 max-w-2xl mx-auto leading-relaxed">
-            Type a research idea. Choose <strong className="text-white">Vector AI</strong> for fully
-            editable schematics or <strong className="text-white">Nano Banana Pro</strong> for rich
-            illustrated raster figures. Built for cancer biologists, genomicists and clinicians.
+          <p className="text-base md:text-lg text-slate-600 max-w-2xl mx-auto leading-relaxed">
+            Type a research idea. Choose <strong className="text-slate-900">Vector AI</strong> for
+            fully editable schematics or <strong className="text-slate-900">Nano Banana Pro</strong> for
+            rich illustrated raster figures. Built for cancer biologists, genomicists and clinicians.
           </p>
         </div>
 
-        {/* ─── MODEL PICKER ─── pick the AI engine that generates your figure */}
-        <div className="flex justify-center mb-4">
-          <div className="inline-flex glass p-1 rounded-full text-xs font-semibold">
+        {/* ─── MODEL PICKER ─── */}
+        <div className="flex justify-center mb-3">
+          <div className="inline-flex bg-white border border-slate-200 p-1 rounded-full text-xs font-semibold shadow-sm">
             <button
               type="button"
               onClick={() => setModel("vector")}
               className={`px-4 py-2 rounded-full transition-all flex items-center gap-1.5 ${
                 model === "vector"
-                  ? "bg-white text-slate-900 shadow-lg"
-                  : "text-slate-300 hover:text-white"
+                  ? "bg-slate-900 text-white"
+                  : "text-slate-600 hover:text-slate-900"
               }`}
-              title="Composes a vector scene graph — every shape, label and arrow is independently editable in the canvas."
             >
               <svg className="w-3.5 h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.8">
                 <rect x="2" y="2" width="4" height="4" /><rect x="8" y="2" width="4" height="4" />
                 <rect x="2" y="8" width="4" height="4" /><rect x="8" y="8" width="4" height="4" />
               </svg>
               Vector AI
-              <span className="ml-0.5 text-[9px] px-1 py-0.5 rounded bg-emerald-500/30 text-emerald-200">editable</span>
+              <span className={`text-[9px] px-1 py-0.5 rounded ${model === "vector" ? "bg-teal-500/30 text-teal-100" : "bg-teal-100 text-teal-700"}`}>
+                editable
+              </span>
             </button>
             <button
               type="button"
               onClick={() => setModel("nano-banana-pro")}
               className={`px-4 py-2 rounded-full transition-all flex items-center gap-1.5 ${
                 model === "nano-banana-pro"
-                  ? "bg-white text-slate-900 shadow-lg"
-                  : "text-slate-300 hover:text-white"
+                  ? "bg-slate-900 text-white"
+                  : "text-slate-600 hover:text-slate-900"
               }`}
-              title="Rich illustrated raster figure via Gemini 3 Pro Image. Text labels then become editable via vision-OCR overlay."
             >
-              <span className="text-base leading-none">🍌</span>
+              <svg className="w-3.5 h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <path d="M7 2v10M2 7h10M3.5 3.5l7 7M10.5 3.5l-7 7" strokeLinecap="round" />
+              </svg>
               Nano Banana Pro
-              <span className="ml-0.5 text-[9px] px-1 py-0.5 rounded bg-amber-500/30 text-amber-200">raster</span>
+              <span className={`text-[9px] px-1 py-0.5 rounded ${model === "nano-banana-pro" ? "bg-amber-500/30 text-amber-100" : "bg-amber-100 text-amber-700"}`}>
+                raster
+              </span>
             </button>
           </div>
         </div>
-        <p className="text-center text-[11px] text-slate-400 -mt-2 mb-4">
+        <p className="text-center text-[11px] text-slate-500 mb-5">
           {model === "vector"
-            ? "Vector AI → every protein, arrow and label born editable on the canvas."
-            : "Nano Banana Pro → richly illustrated raster figure with editable text overlays."}
+            ? "Every protein, arrow and label born editable on the canvas."
+            : "Richly illustrated raster figure with editable text overlays after OCR."}
         </p>
 
-        {/* ─── GLASS PROMPT BOX ─── */}
-        <div className="glass rounded-3xl p-2 md:p-3 mb-6 max-w-3xl mx-auto">
+        {/* ─── PROMPT BOX ─── */}
+        <div className="hairline-card rounded-2xl p-3 max-w-3xl mx-auto">
           <textarea
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
@@ -252,25 +227,25 @@ export default function HomePage() {
             }}
             placeholder="Describe a mechanism, pathway, or experimental design…"
             rows={4}
-            className="w-full resize-none outline-none text-sm md:text-base text-white placeholder:text-slate-400 bg-transparent px-4 py-3"
+            className="w-full resize-none outline-none text-[15px] text-slate-900 placeholder:text-slate-400 px-3 py-2.5 bg-transparent"
             disabled={generating}
           />
-          <div className="flex items-center justify-between gap-2 px-2 pb-1">
-            <div className="flex items-center gap-3 text-[11px] text-slate-400">
+          <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-100">
+            <div className="flex items-center gap-3 text-[11px] text-slate-500 pl-2">
               <span className="inline-flex items-center gap-1.5">
-                <svg className="w-3.5 h-3.5 text-indigo-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <svg className="w-3.5 h-3.5 text-slate-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
                   <path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" strokeLinejoin="round" />
                 </svg>
                 Vector scene graph
               </span>
-              <span className="hidden md:inline text-slate-600">·</span>
+              <span className="hidden md:inline text-slate-300">·</span>
               <span className="hidden md:inline">⌘ Enter to generate</span>
             </div>
             <button
               type="button"
               onClick={() => void handleGenerate()}
               disabled={generating || !prompt.trim()}
-              className="glow-btn inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-white text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              className="btn-primary inline-flex items-center gap-2 px-5 py-2 rounded-full text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
             >
               {generating ? (
                 <>
@@ -290,23 +265,23 @@ export default function HomePage() {
         </div>
 
         {/* ─── CATEGORY CHIPS ─── */}
-        <div className="flex flex-wrap items-center justify-center gap-2 mb-10 max-w-3xl mx-auto">
+        <div className="flex flex-wrap items-center justify-center gap-2 mt-6 mb-10 max-w-3xl mx-auto">
           {CATEGORIES.map((c) => (
             <button
               key={c.label}
               type="button"
               onClick={() => setPrompt((p) => (p ? p : c.prompt))}
-              className="px-3.5 py-1.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 hover:border-indigo-400/50 text-xs font-medium text-slate-200 hover:text-white transition-all cursor-pointer backdrop-blur"
+              className="px-3.5 py-1.5 rounded-full bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-xs font-medium text-slate-700 transition-all cursor-pointer"
             >
               {c.label}
             </button>
           ))}
         </div>
 
-        {/* ─── EXAMPLE PROMPTS (only when input empty) ─── */}
+        {/* ─── EXAMPLE PROMPTS ─── */}
         {!prompt && (
           <div className="mb-16 max-w-3xl mx-auto">
-            <p className="text-[10px] uppercase tracking-[0.2em] text-slate-400 mb-3 font-semibold text-center">
+            <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500 mb-3 font-semibold text-center">
               Try one of these
             </p>
             <div className="grid gap-2">
@@ -315,9 +290,9 @@ export default function HomePage() {
                   key={ep}
                   type="button"
                   onClick={() => setPrompt(ep)}
-                  className="card-3d text-left text-sm text-slate-200 hover:text-white bg-white/5 hover:bg-white/[0.08] border border-white/10 hover:border-indigo-400/40 px-4 py-3 rounded-2xl transition-all cursor-pointer backdrop-blur"
+                  className="hairline-card text-left text-sm text-slate-700 px-4 py-3 rounded-xl cursor-pointer"
                 >
-                  <span className="text-indigo-300 mr-2">›</span>
+                  <span className="text-teal-600 mr-2 font-semibold">›</span>
                   {ep}
                 </button>
               ))}
@@ -325,11 +300,11 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* ─── 3-COLUMN VALUE PROPS ─── */}
-        <div className="grid md:grid-cols-3 gap-4 my-20">
+        {/* ─── VALUE PROPS ─── */}
+        <div className="grid md:grid-cols-3 gap-4 my-16">
           <ValueCard
             icon={
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="w-6 h-6">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="w-5 h-5">
                 <path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z" />
               </svg>
             }
@@ -338,19 +313,19 @@ export default function HomePage() {
           />
           <ValueCard
             icon={
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="w-6 h-6">
-                <path d="M12 2v4M12 18v4M22 12h-4M6 12H2M19 5l-2.5 2.5M7.5 16.5L5 19M19 19l-2.5-2.5M7.5 7.5L5 5" strokeLinecap="round" />
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="w-5 h-5">
                 <circle cx="12" cy="12" r="4" />
+                <path d="M12 2v4M12 18v4M22 12h-4M6 12H2M19 5l-2.5 2.5M7.5 16.5L5 19M19 19l-2.5-2.5M7.5 7.5L5 5" strokeLinecap="round" />
               </svg>
             }
             title="600+ biomedical assets"
-            body="Curated proteins, immune cells, organelles, CRISPR primitives — drop in, no licensing headache."
+            body="Curated proteins, immune cells, organelles, CRISPR primitives. Drop in, no licensing headache."
           />
           <ValueCard
             icon={
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="w-6 h-6">
-                <path d="M6 1l4 2v3.5a5 5 0 0 1-4 5 5 5 0 0 1-4-5V3z M12 1l4 2v3.5a5 5 0 0 1-4 5 5 5 0 0 1-4-5" transform="translate(4 6)" />
-                <path d="M4 10l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" />
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="w-5 h-5">
+                <path d="M12 2l9 4v5c0 5-3.5 9.5-9 11-5.5-1.5-9-6-9-11V6l9-4z" />
+                <path d="M8 12l2.5 2.5L16 9" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             }
             title="Built for biomedical trust"
@@ -359,23 +334,23 @@ export default function HomePage() {
         </div>
 
         {/* ─── RECENT PROJECTS ─── */}
-        <div className="mt-20">
+        <div className="mt-16">
           <div className="flex items-center justify-between mb-5">
-            <h2 className="text-xl font-semibold text-white">Recent projects</h2>
-            <Link href="/projects" className="text-xs font-medium text-indigo-300 hover:text-white transition-colors">
+            <h2 className="text-xl font-semibold text-slate-900">Recent projects</h2>
+            <Link href="/projects" className="text-xs font-medium text-slate-600 hover:text-slate-900">
               See all →
             </Link>
           </div>
           {loadingRecent ? (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="aspect-square rounded-2xl bg-white/5 border border-white/10 animate-pulse" />
+                <div key={i} className="aspect-square rounded-xl bg-slate-100 animate-pulse" />
               ))}
             </div>
           ) : recent.length === 0 ? (
-            <div className="glass rounded-3xl py-14 text-center">
-              <p className="text-sm text-slate-300">
-                No projects yet — type a prompt above to generate your first vector figure.
+            <div className="hairline-card rounded-2xl py-14 text-center">
+              <p className="text-sm text-slate-500">
+                No projects yet — type a prompt above to generate your first figure.
               </p>
             </div>
           ) : (
@@ -388,23 +363,21 @@ export default function HomePage() {
         </div>
       </main>
 
-      <div className="relative z-10">
-        <SiteFooter />
-      </div>
+      <SiteFooter />
     </div>
   );
 }
 
-/* ─── DARK GLASS NAV (replaces SiteHeader on the hero) ─── */
-function DarkNav() {
+/* ─── Editorial top nav (light, restrained, professional) ─── */
+function EditorialNav() {
   return (
-    <header className="sticky top-0 z-40 px-4 py-3 md:px-6 md:py-4">
-      <div className="max-w-7xl mx-auto glass rounded-2xl px-3 md:px-5 py-2.5 flex items-center gap-6">
+    <header className="sticky top-0 z-40 bg-[#fafaf7]/85 backdrop-blur border-b border-slate-200">
+      <div className="max-w-7xl mx-auto px-6 py-3.5 flex items-center gap-6">
         <Link href="/" className="flex items-center gap-2 shrink-0">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 via-purple-500 to-cyan-400 flex items-center justify-center text-white font-bold text-sm brand-glow">
+          <div className="w-7 h-7 rounded-md bg-gradient-to-br from-slate-800 to-teal-600 flex items-center justify-center text-white font-bold text-sm">
             A
           </div>
-          <span className="text-sm font-semibold tracking-tight text-white">AnyFigure</span>
+          <span className="text-sm font-semibold tracking-tight text-slate-900">AnyFigure</span>
         </Link>
         <nav className="hidden md:flex items-center gap-1 text-sm">
           {[
@@ -414,23 +387,23 @@ function DarkNav() {
             { href: "/workspace", label: "Editor" },
             { href: "/pricing", label: "Pricing" },
           ].map((l) => (
-            <Link key={l.href} href={l.href} className="px-3 py-1.5 rounded-md text-slate-300 hover:text-white hover:bg-white/5 transition-colors">
+            <Link key={l.href} href={l.href} className="px-3 py-1.5 rounded-md text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors">
               {l.label}
             </Link>
           ))}
         </nav>
         <div className="flex-1" />
-        <Link href="/security" className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 text-[11px] font-medium">
+        <Link href="/security" className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-medium">
           <svg className="w-3 h-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M6 1l4 2v3.5a5 5 0 0 1-4 5 5 5 0 0 1-4-5V3z" />
             <path d="M4 6l1.5 1.5L8 5" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
           Encrypted
         </Link>
-        <Link href="/pricing" className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-amber-400/10 text-amber-300 border border-amber-400/20 text-[11px] font-semibold hover:bg-amber-400/20">
-          ⚡ Upgrade
+        <Link href="/pricing" className="hidden md:inline-flex items-center px-3 py-1.5 rounded-full bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 text-[11px] font-semibold">
+          Upgrade
         </Link>
-        <Link href="/sign-in" className="inline-flex items-center px-3.5 py-1.5 rounded-full bg-white text-slate-900 text-xs font-semibold hover:bg-slate-100">
+        <Link href="/sign-in" className="inline-flex items-center px-3.5 py-1.5 rounded-full bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800">
           Sign in
         </Link>
       </div>
@@ -438,60 +411,30 @@ function DarkNav() {
   );
 }
 
-/* ─── Floating biomedical molecule SVG decor in the hero background ─── */
-function MoleculeDecor() {
-  return (
-    <>
-      <svg className="absolute top-32 left-8 md:left-20 w-16 h-16 text-indigo-300/30 float-slow pointer-events-none" viewBox="0 0 64 64" fill="none" stroke="currentColor" strokeWidth="1.2">
-        <circle cx="32" cy="32" r="8" />
-        <circle cx="12" cy="22" r="5" />
-        <circle cx="52" cy="22" r="5" />
-        <circle cx="22" cy="52" r="5" />
-        <circle cx="46" cy="52" r="5" />
-        <path d="M28 28L16 24M36 28L48 24M30 36L26 48M34 36L42 48" />
-      </svg>
-      <svg className="absolute top-40 right-10 md:right-32 w-20 h-20 text-cyan-300/25 float-slow pointer-events-none" viewBox="0 0 80 80" fill="none" stroke="currentColor" strokeWidth="1.2" style={{ animationDelay: "-2s" }}>
-        <path d="M10 40c0-16 12-28 30-28s30 12 30 28-12 28-30 28S10 56 10 40z" />
-        <path d="M10 40h60M28 14c-4 8-4 18 0 26 4 8 4 16 0 26M52 14c4 8 4 18 0 26-4 8-4 16 0 26" />
-      </svg>
-      <svg className="absolute bottom-32 left-10 md:left-40 w-14 h-14 text-purple-300/25 spin-slow pointer-events-none" viewBox="0 0 48 48" fill="none" stroke="currentColor" strokeWidth="1.2">
-        <circle cx="24" cy="24" r="20" strokeDasharray="3 6" />
-        <circle cx="24" cy="24" r="6" />
-      </svg>
-      <svg className="absolute bottom-44 right-8 md:right-44 w-24 h-12 text-teal-300/25 float-slow pointer-events-none" viewBox="0 0 96 48" fill="none" stroke="currentColor" strokeWidth="1.4" style={{ animationDelay: "-5s" }}>
-        <path d="M4 24 Q 16 4, 28 24 T 52 24 T 76 24 T 100 24" />
-        <path d="M4 24 Q 16 44, 28 24 T 52 24 T 76 24 T 100 24" />
-      </svg>
-    </>
-  );
-}
-
-/* ─── Glass value-prop card ─── */
 function ValueCard({ icon, title, body }: { icon: React.ReactNode; title: string; body: string }) {
   return (
-    <div className="card-3d glass rounded-2xl p-5 group">
-      <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500/30 to-cyan-500/30 flex items-center justify-center text-indigo-200 mb-3 group-hover:scale-110 transition-transform">
+    <div className="hairline-card rounded-2xl p-5">
+      <div className="w-9 h-9 rounded-lg bg-teal-50 text-teal-700 flex items-center justify-center mb-3">
         {icon}
       </div>
-      <h3 className="text-base font-semibold text-white mb-1">{title}</h3>
-      <p className="text-xs text-slate-400 leading-relaxed">{body}</p>
+      <h3 className="text-sm font-semibold text-slate-900 mb-1">{title}</h3>
+      <p className="text-xs text-slate-600 leading-relaxed">{body}</p>
     </div>
   );
 }
 
-/* ─── Recent project card (dark glass) ─── */
 function RecentCard({ fig, onDelete }: { fig: StoredFigure; onDelete: (id: string) => void }) {
   const router = useRouter();
   const thumb = fig.plan?.panels?.find((p) => p.imageUrl)?.imageUrl ?? fig.pngUrl ?? fig.svgUrl ?? null;
   return (
-    <div className="group relative card-3d rounded-2xl border border-white/10 bg-white/5 hover:bg-white/[0.08] hover:border-indigo-400/40 overflow-hidden backdrop-blur">
+    <div className="group relative hairline-card rounded-xl overflow-hidden">
       <button type="button" onClick={() => router.push(`/workspace?figure=${encodeURIComponent(fig.id)}`)} className="block w-full text-left">
-        <div className="aspect-square bg-gradient-to-br from-slate-800/50 to-slate-900/50 flex items-center justify-center overflow-hidden">
+        <div className="aspect-square bg-slate-50 flex items-center justify-center overflow-hidden">
           {thumb ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={thumb} alt={fig.prompt} className="w-full h-full object-cover" />
           ) : (
-            <div className="text-indigo-300/40">
+            <div className="text-slate-300">
               <svg className="w-10 h-10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.3">
                 <rect x="3" y="4" width="18" height="14" rx="2" />
                 <path d="M3 14l5-4 4 3 4-5 5 6" />
@@ -499,15 +442,15 @@ function RecentCard({ fig, onDelete }: { fig: StoredFigure; onDelete: (id: strin
             </div>
           )}
         </div>
-        <div className="p-2.5">
-          <p className="text-xs font-medium text-white line-clamp-2 leading-snug">{fig.prompt || "Untitled figure"}</p>
-          <p className="text-[10px] text-slate-400 mt-1">{new Date(fig.timestamp).toLocaleDateString()}</p>
+        <div className="p-2.5 border-t border-slate-100">
+          <p className="text-xs font-medium text-slate-900 line-clamp-2 leading-snug">{fig.prompt || "Untitled figure"}</p>
+          <p className="text-[10px] text-slate-500 mt-1">{new Date(fig.timestamp).toLocaleDateString()}</p>
         </div>
       </button>
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); onDelete(fig.id); }}
-        className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/60 backdrop-blur border border-white/10 flex items-center justify-center text-slate-300 hover:bg-red-500/30 hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity"
+        className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-white/95 border border-slate-200 flex items-center justify-center text-slate-500 hover:bg-red-50 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
         title="Delete"
       >
         <svg className="w-3 h-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">

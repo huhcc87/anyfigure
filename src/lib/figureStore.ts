@@ -354,20 +354,76 @@ async function saveFigureListIdb(figures: StoredFigure[]): Promise<void> {
 }
 
 /** Recover the figure list from IndexedDB when localStorage is empty
- *  (cleared by browser, quota issues, profile reset, etc). */
+ *  (cleared by browser, quota issues, profile reset, etc). Two-stage:
+ *  1. The explicit HISTORY_IDB_KEY backup list (written by saveRecentFigures).
+ *  2. Enumerate EVERY individual plan record in figure_plans and synthesize
+ *     a StoredFigure for each — rescues figures saved by older versions of
+ *     the app that didn't write the backup list yet. */
 export async function recoverFigureListFromIdb(): Promise<StoredFigure[]> {
   if (typeof window === "undefined") return [];
   try {
     const db = await openIdb();
-    const list = await new Promise<StoredFigure[]>((resolve, reject) => {
-      const tx = db.transaction(IDB_STORE, "readonly");
-      const req = tx.objectStore(IDB_STORE).get(HISTORY_IDB_KEY);
-      req.onsuccess = () => {
-        const result = req.result as { list?: StoredFigure[] } | undefined;
-        resolve(result?.list ?? []);
-      };
-      req.onerror = () => reject(req.error);
+
+    // Stage 1 — explicit backup list
+    let list = await new Promise<StoredFigure[]>((resolve) => {
+      try {
+        const tx = db.transaction(IDB_STORE, "readonly");
+        const req = tx.objectStore(IDB_STORE).get(HISTORY_IDB_KEY);
+        req.onsuccess = () => {
+          const result = req.result as { list?: StoredFigure[] } | undefined;
+          resolve(result?.list ?? []);
+        };
+        req.onerror = () => resolve([]);
+      } catch {
+        resolve([]);
+      }
     });
+
+    // Stage 2 — enumerate every individual figure plan and synthesize cards
+    // for any plans not already represented in the list. This rescues
+    // figures saved by older app versions that didn't maintain the backup.
+    try {
+      const individuals = await new Promise<Array<{ id: string; plan?: FigurePlan; savedAt?: number }>>(
+        (resolve) => {
+          try {
+            const tx = db.transaction(IDB_STORE, "readonly");
+            const req = tx.objectStore(IDB_STORE).getAll();
+            req.onsuccess = () => resolve(req.result ?? []);
+            req.onerror = () => resolve([]);
+          } catch {
+            resolve([]);
+          }
+        }
+      );
+      const seen = new Set(list.map((f) => f.id));
+      const synthesized: StoredFigure[] = [];
+      for (const rec of individuals) {
+        if (!rec?.id || rec.id === HISTORY_IDB_KEY || seen.has(rec.id)) continue;
+        if (!rec.plan?.panels?.length) continue;
+        const firstImg = rec.plan.panels.find((p) => p.imageUrl)?.imageUrl;
+        const labelCount = rec.plan.panels.reduce(
+          (n, p) => n + (p.textNodesManifest?.regions?.length ?? 0),
+          0
+        );
+        synthesized.push({
+          id: rec.id,
+          prompt: (rec.plan.title || rec.plan.panels[0]?.description || "Untitled figure").slice(0, 120),
+          panels: rec.plan.panels.length,
+          mode: rec.plan.mode || (firstImg ? "image" : "svg"),
+          timestamp: new Date(rec.savedAt || Date.now()).toISOString(),
+          plan: rec.plan,
+          pngUrl: firstImg,
+          editableReady: labelCount > 0,
+        });
+      }
+      if (synthesized.length > 0) {
+        console.info(`[figureStore] rescued ${synthesized.length} figures from individual IDB records`);
+        list = [...list, ...synthesized];
+      }
+    } catch (err) {
+      console.warn("[figureStore] stage-2 enumeration failed", err);
+    }
+
     db.close();
     return pruneRecentFigures(list);
   } catch {

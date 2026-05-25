@@ -53,9 +53,56 @@ body {
 }
 
 /* ═══════════════════════════════════════════════════════
-   3D Hero — dark, deep, bio-inspired
-   Used by the home page. Original design language, not
-   a copy of any other scientific-figure tool.
+   Editorial neutral surface — restrained, professional.
+   Used by Home, Projects, Library. Warm off-white with
+   subtle grain, deep slate text, single teal accent.
+   ═══════════════════════════════════════════════════════ */
+
+.surface-editorial {
+  background-color: #fafaf7;
+  background-image:
+    radial-gradient(rgba(15, 23, 42, 0.025) 1px, transparent 1px);
+  background-size: 28px 28px;
+  background-position: 0 0;
+}
+
+.hairline-card {
+  background: #ffffff;
+  border: 1px solid #e6e8eb;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03), 0 4px 12px -8px rgba(15, 23, 42, 0.08);
+  transition: border-color 200ms, box-shadow 200ms, transform 200ms;
+}
+.hairline-card:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 2px 4px rgba(15, 23, 42, 0.04), 0 12px 24px -10px rgba(15, 23, 42, 0.10);
+}
+
+.btn-primary {
+  background: #0f172a;
+  color: #ffffff;
+  transition: background 160ms, transform 160ms;
+}
+.btn-primary:hover:not(:disabled) {
+  background: #1e293b;
+  transform: translateY(-1px);
+}
+.btn-primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn-accent {
+  background: linear-gradient(180deg, #0d9488 0%, #0f766e 100%);
+  color: #ffffff;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.15), 0 1px 2px rgba(13, 148, 136, 0.25);
+  transition: filter 160ms, transform 160ms;
+}
+.btn-accent:hover:not(:disabled) {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+}
+
+/* ═══════════════════════════════════════════════════════
+   Legacy 3D hero (kept for any page that still uses it)
    ═══════════════════════════════════════════════════════ */
 
 .hero-3d {
