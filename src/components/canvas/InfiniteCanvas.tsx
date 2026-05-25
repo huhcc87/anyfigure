@@ -48,6 +48,20 @@ function boundsFromPoints(points: { x: number; y: number }[]) {
 
 function textStyles(el: CanvasElement): React.CSSProperties {
   const role = el.textRole;
+  // CHECK detected FIRST so OCR-detected labels get proportional font size,
+  // not the fixed 13px label size that causes wrapping in small bboxes.
+  if (el.partRole === "detected") {
+    const size = Math.max(7, Math.min(16, Math.round(el.height * 0.72)));
+    return {
+      fontSize: size,
+      fontWeight: 600,
+      color: "#111827",
+      lineHeight: 1.05,
+      whiteSpace: "nowrap",       // prevent wrap that turned "Module 1" → "Mod / ule 1"
+      overflow: "visible",        // let text overflow the bbox cleanly
+      textOverflow: "clip",
+    };
+  }
   if (role === "title") {
     return { fontSize: 18, fontWeight: 700, color: "#111827", lineHeight: 1.3 };
   }
@@ -59,10 +73,6 @@ function textStyles(el: CanvasElement): React.CSSProperties {
   }
   if (role === "label") {
     return { fontSize: 13, fontWeight: 700, color: el.fill || "#6366f1", lineHeight: 1.2 };
-  }
-  if (el.partRole === "detected") {
-    const size = Math.max(8, Math.min(14, Math.round(el.height * 0.75)));
-    return { fontSize: size, fontWeight: 600, color: "#111827", lineHeight: 1.1 };
   }
   return { fontSize: 12, fontWeight: 400, color: "#111827", lineHeight: 1.4 };
 }
@@ -439,6 +449,9 @@ export default function InfiniteCanvas() {
           const isSelected = selectedIds.includes(el.id);
           const isEditing = editingId === el.id;
 
+          // OCR-detected labels: width grows to fit text (so "Module 1" doesn't wrap
+          // to "Mod / ule 1" in tight bboxes from Gemini Vision).
+          const isDetected = el.type === "text" && el.partRole === "detected";
           return (
             <div
               key={el.id}
@@ -446,7 +459,8 @@ export default function InfiniteCanvas() {
                 position: "absolute",
                 left: el.x,
                 top: el.y,
-                width: el.width,
+                width: isDetected ? "auto" : el.width,
+                minWidth: isDetected ? el.width : undefined,
                 height: el.type === "text" ? "auto" : el.height,
                 minHeight: el.type === "text" ? el.height : undefined,
                 transform: `rotate(${el.rotation}deg)`,
@@ -509,30 +523,33 @@ export default function InfiniteCanvas() {
                 <div
                   contentEditable={isEditing}
                   suppressContentEditableWarning
-                  className="w-full outline-none px-0.5 py-0 rounded"
+                  className={isDetected ? "outline-none rounded flex items-center" : "w-full outline-none px-0.5 py-0 rounded"}
                   style={{
                     ...textStyles(el),
-                    color: el.partRole === "detected" ? "#111827" : (textStyles(el).color as string),
-                    outline:
-                      el.partRole === "detected"
-                        ? isSelected || isEditing
-                          ? "2px solid #6366f1"
-                          : "1px solid rgba(99,102,241,0.25)"
-                        : isSelected
-                          ? "2px solid #6366f1"
-                          : "1px dashed rgba(99,102,241,0.3)",
-                    outlineOffset: 2,
+                    color: isDetected ? "#111827" : (textStyles(el).color as string),
+                    outline: isDetected
+                      ? isSelected || isEditing
+                        ? "2px solid #6366f1"
+                        : "1px dashed rgba(99,102,241,0.35)"
+                      : isSelected
+                        ? "2px solid #6366f1"
+                        : "1px dashed rgba(99,102,241,0.3)",
+                    outlineOffset: isDetected ? 0 : 2,
                     minHeight: el.height,
-                    whiteSpace: "pre-wrap",
-                    wordBreak: "break-word",
-                    background:
-                      el.partRole === "detected"
-                        ? "rgba(255,255,255,0.94)"
-                        : isEditing
-                          ? "rgba(99,102,241,0.06)"
-                          : isSelected
-                            ? "rgba(99,102,241,0.04)"
-                            : "transparent",
+                    paddingLeft: isDetected ? 3 : undefined,
+                    paddingRight: isDetected ? 3 : undefined,
+                    paddingTop: isDetected ? 1 : undefined,
+                    paddingBottom: isDetected ? 1 : undefined,
+                    whiteSpace: isDetected ? "nowrap" : "pre-wrap",
+                    wordBreak: isDetected ? "normal" : "break-word",
+                    background: isDetected
+                      ? "#ffffff"
+                      : isEditing
+                        ? "rgba(99,102,241,0.06)"
+                        : isSelected
+                          ? "rgba(99,102,241,0.04)"
+                          : "transparent",
+                    boxShadow: isDetected ? "0 0 0 2px #ffffff" : undefined,
                   }}
                   onBlur={(e) => {
                     if (isEditing) finishEditing(el.id, e.currentTarget.textContent || "");

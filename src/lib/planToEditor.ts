@@ -6,7 +6,7 @@ import { getPanelTextManifest, mapPixelBboxToLayout, sanitizeBbox } from "@/lib/
 import type { CanvasElement } from "@/types";
 import { generateId } from "@/lib/utils";
 
-const CANVAS_W = 1200;
+const CANVAS_W = 1600;
 const MARGIN = 48;
 const TITLE_H = 52;
 const GAP = 20;
@@ -274,15 +274,20 @@ function addDetectedLabelsFromManifest(
     if (!r.text || !r.text.trim()) continue;
     const bbox = sanitizeBbox(r.bbox, r.text, manifest.imageWidth, manifest.imageHeight);
     const layout = mapPixelBboxToLayout(bbox, manifest.imageWidth, manifest.imageHeight, imgW, imgH, imgX, imgY);
+    // Expand bbox slightly so the white background masks the baked-in raster text fully
+    // (Gemini Vision often returns tight bboxes that don't cover descenders / antialias).
+    const padX = Math.max(2, layout.w * 0.08);
+    const padY = Math.max(1, layout.h * 0.15);
     elements.push({
       id: r.id,
       type: "text",
-      textRole: "label",
+      // NOTE: do NOT set textRole: "label" — that branch in textStyles forces fixed 13px
+      // font and wraps text in narrow bboxes. partRole "detected" gives proportional sizing.
       partRole: "detected",
-      x: layout.x,
-      y: layout.y,
-      width: layout.w,
-      height: layout.h,
+      x: Math.max(0, layout.x - padX),
+      y: Math.max(0, layout.y - padY),
+      width: layout.w + padX * 2,
+      height: layout.h + padY * 2,
       rotation: 0,
       opacity: 1,
       locked: false,
@@ -333,8 +338,8 @@ function addPanelContent(
   return addDiagramParts(elements, panel, x, y, width, height, zStart, planTitle, true);
 }
 
-const AI_PANEL_H = 380;
-const AI_LABEL_H = 28;
+const AI_PANEL_H = 600;
+const AI_LABEL_H = 32;
 
 /** Import multi/single panel AI image figures — matches studio preview layout. */
 function importAiImagePlan(plan: FigurePlan, panels: PanelSpec[]) {
@@ -364,7 +369,7 @@ function importAiImagePlan(plan: FigurePlan, panels: PanelSpec[]) {
   const cols = gridCols(panels.length);
   const rows = Math.ceil(panels.length / cols);
   const cellW = (diagramW - GAP * (cols - 1)) / cols;
-  const panelH = panels.length === 1 ? 520 : AI_PANEL_H;
+  const panelH = panels.length === 1 ? 900 : AI_PANEL_H;
   let z = 10;
 
   panels.forEach((panel, i) => {
