@@ -3,6 +3,7 @@ import type { FigurePlan } from "@/components/figures/FigureRenderer";
 const PLAN_SESSION_KEY = "anyfigure_pending_plan_session";
 const EDIT_FIGURE_ID_KEY = "anyfigure_edit_figure_id";
 const HISTORY_KEY = "anyfigure_recent_figures";
+const HISTORY_IDB_KEY = "__recent_figures_list__";
 const IDB_NAME = "anyfigure_db";
 const IDB_STORE = "figure_plans";
 const WS_PREFIX = "ws-";
@@ -206,9 +207,45 @@ export async function hydrateStoredFigures(figures: StoredFigure[]): Promise<Sto
 function writeRecentFigures(figures: StoredFigure[]) {
   if (typeof window === "undefined") return;
   try {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(stripImagesForStorage(figures)));
-  } catch {
-    /* ignore quota */
+    const stripped = stripImagesForStorage(figures);
+    const json = JSON.stringify(stripped);
+    localStorage.setItem(HISTORY_KEY, json);
+  } catch (err) {
+    // localStorage quota hit (typically 5–10 MB). Fall back to writing a
+    // minimal record per figure so the user does not lose ALL history when one
+    // manifest grows large — they'll just lose detected-label data on overflow
+    // figures, not the figure cards themselves. Full plan stays in IndexedDB.
+    console.warn("[figureStore] localStorage quota — writing minimal record", err);
+    try {
+      const minimal = figures.map((f) => ({
+        id: f.id,
+        prompt: f.prompt,
+        panels: f.panels,
+        mode: f.mode,
+        timestamp: f.timestamp,
+        pngUrl: f.pngUrl,
+        svgUrl: f.svgUrl,
+        textNodesUrl: f.textNodesUrl,
+        editableReady: f.editableReady,
+      }));
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(minimal));
+    } catch {
+      // Even minimal failed — last resort, keep only the newest 5
+      try {
+        const top5 = figures
+          .slice(0, 5)
+          .map((f) => ({
+            id: f.id,
+            prompt: f.prompt,
+            panels: f.panels,
+            mode: f.mode,
+            timestamp: f.timestamp,
+          }));
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(top5));
+      } catch {
+        /* localStorage entirely unavailable — figures still in IndexedDB */
+      }
+    }
   }
 }
 
@@ -294,6 +331,50 @@ export function loadRecentFigures(): StoredFigure[] {
   }
 }
 
+/** Persist the figure-list-metadata to IndexedDB as a durable backup of
+ *  localStorage. IDB has a much larger quota (50+ MB) so we never lose
+ *  figures even if localStorage is full. */
+async function saveFigureListIdb(figures: StoredFigure[]): Promise<void> {
+  try {
+    const db = await openIdb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, "readwrite");
+      tx.objectStore(IDB_STORE).put({
+        id: HISTORY_IDB_KEY,
+        list: stripImagesForStorage(figures),
+        savedAt: Date.now(),
+      });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  } catch (err) {
+    console.warn("[figureStore] failed to back up figure list to IDB", err);
+  }
+}
+
+/** Recover the figure list from IndexedDB when localStorage is empty
+ *  (cleared by browser, quota issues, profile reset, etc). */
+export async function recoverFigureListFromIdb(): Promise<StoredFigure[]> {
+  if (typeof window === "undefined") return [];
+  try {
+    const db = await openIdb();
+    const list = await new Promise<StoredFigure[]>((resolve, reject) => {
+      const tx = db.transaction(IDB_STORE, "readonly");
+      const req = tx.objectStore(IDB_STORE).get(HISTORY_IDB_KEY);
+      req.onsuccess = () => {
+        const result = req.result as { list?: StoredFigure[] } | undefined;
+        resolve(result?.list ?? []);
+      };
+      req.onerror = () => reject(req.error);
+    });
+    db.close();
+    return pruneRecentFigures(list);
+  } catch {
+    return [];
+  }
+}
+
 export async function saveRecentFigures(figures: StoredFigure[]) {
   if (typeof window === "undefined") return;
   const pruned = pruneRecentFigures(figures);
@@ -303,6 +384,8 @@ export async function saveRecentFigures(figures: StoredFigure[]) {
       .filter((fig) => fig.plan?.panels?.some((p) => p.imageUrl))
       .map((fig) => saveFigurePlanIdb(fig.id, fig.plan!))
   );
+  // Durable backup of the figure list itself — survives localStorage clear.
+  await saveFigureListIdb(pruned);
 }
 
 export function addRecentFigure(fig: StoredFigure) {

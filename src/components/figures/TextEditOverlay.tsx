@@ -467,6 +467,14 @@ export const TextEditOverlay = memo(function TextEditOverlay({
             const off = dragOffsets[node.id];
             const renderX = off ? x + off.dx : x;
             const renderY = off ? y + off.dy : y;
+            // Mask must cover BOTH the original bbox (where baked-in raster
+            // text lives) AND the rendered edit text (which may be longer than
+            // the original). Estimate new text width from char count × font.
+            const estimatedTextWidth = isEdited
+              ? Math.max(w, label.length * fontSize * 0.55) + 8
+              : Math.max(w, 12);
+            const maskWidth = isEdited ? Math.max(estimatedTextWidth, w + 12) : Math.max(w, 12);
+            const maskHeight = Math.max(h, 10);
             return (
               <div
                 key={node.id}
@@ -474,8 +482,8 @@ export const TextEditOverlay = memo(function TextEditOverlay({
                 style={{
                   left: renderX,
                   top: renderY,
-                  width: Math.max(w, 12),
-                  height: Math.max(h, 10),
+                  width: maskWidth,
+                  height: maskHeight,
                   background: isEdited ? "#ffffff" : bgColor,
                   transition: off ? "none" : "background 150ms, border-color 150ms",
                 }}
@@ -484,10 +492,13 @@ export const TextEditOverlay = memo(function TextEditOverlay({
                   <div
                     className="absolute"
                     style={{
-                      left: mask.x - x,
-                      top: mask.y - y,
-                      width: mask.w,
-                      height: mask.h,
+                      left: Math.min(mask.x - x, -3),
+                      top: Math.min(mask.y - y, -2),
+                      // Mask grows to cover the longer of (original raster text bbox)
+                      // and (new edited text width) so the underlying baked-in text
+                      // never leaks past the right edge of the new label.
+                      width: Math.max(mask.w, maskWidth + 8),
+                      height: Math.max(mask.h, maskHeight + 4),
                       background: "#ffffff",
                       boxShadow: "0 0 0 1px #ffffff",
                       zIndex: -1,

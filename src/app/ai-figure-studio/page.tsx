@@ -18,6 +18,7 @@ import {
   pruneRecentFigures,
   hydrateStoredFigures,
   loadFigurePlanIdb,
+  recoverFigureListFromIdb,
   type StoredFigure,
 } from "@/lib/figureStore";
 import type { GenerationMode, FigurePlan, PanelSpec } from "@/components/figures/FigureRenderer";
@@ -149,7 +150,31 @@ export default function AIFigureStudioPage() {
 
   useEffect(() => {
     const refreshFigures = async () => {
-      const stored = loadRecentFigures();
+      let stored = loadRecentFigures();
+      // If localStorage is empty or partial, try recovering from IndexedDB.
+      // IDB has a much larger quota and survives localStorage clears (browser
+      // privacy settings, quota events, profile resets, etc).
+      if (stored.length === 0) {
+        const recovered = await recoverFigureListFromIdb();
+        if (recovered.length > 0) {
+          console.info(`[studio] recovered ${recovered.length} figures from IndexedDB backup`);
+          stored = recovered;
+          // Re-save to localStorage so next load is fast
+          void saveRecentFigures(recovered);
+        }
+      } else {
+        // Merge any extra figures from IDB (in case localStorage lost some)
+        const recovered = await recoverFigureListFromIdb();
+        if (recovered.length > stored.length) {
+          const seen = new Set(stored.map((f) => f.id));
+          const extras = recovered.filter((f) => !seen.has(f.id));
+          if (extras.length > 0) {
+            console.info(`[studio] merging ${extras.length} extra figures from IndexedDB`);
+            stored = pruneRecentFigures([...stored, ...extras]);
+            void saveRecentFigures(stored);
+          }
+        }
+      }
       const hydrated = await hydrateStoredFigures(stored);
       setGeneratedFigures(hydrated);
     };
