@@ -2,6 +2,7 @@ import type { FigurePlan, PanelSpec } from "@/components/figures/FigureRenderer"
 import { isAiImagePlan } from "@/lib/makeEditable/isAiImagePlan";
 import { getPanelTextManifest } from "@/lib/makeEditable/imageRegionUtils";
 import { extractTextFromFigureImage } from "@/services/ai/geminiVision";
+import { TEXT_MANIFEST_VERSION } from "@/lib/makeEditable/textManifestConstants";
 
 function excludeChromeTexts(plan: FigurePlan, panel: PanelSpec): string[] {
   const texts: string[] = [];
@@ -16,7 +17,8 @@ export async function enrichPlanWithVisionDirect(
   plan: FigurePlan,
   force = false
 ): Promise<{ plan: FigurePlan; labelCount: number }> {
-  if (!isAiImagePlan(plan) || !plan.panels?.length) {
+  const hasImagePanels = plan.panels?.some((p) => !!p.imageUrl);
+  if (!hasImagePanels || !plan.panels?.length) {
     return { plan, labelCount: 0 };
   }
 
@@ -25,22 +27,29 @@ export async function enrichPlanWithVisionDirect(
       if (!panel.imageUrl) return panel;
 
       if (panel.textNodesManifest?.regions?.length && !force) {
-        return panel;
+        if (panel.textNodesManifest.manifestVersion === TEXT_MANIFEST_VERSION) {
+          return panel;
+        }
       }
 
-      const { manifest, model } = await extractTextFromFigureImage(panel.imageUrl, {
-        excludeTexts: excludeChromeTexts(plan, panel),
-        panelId: panel.id || panel.label,
-      });
+      try {
+        const { manifest, model } = await extractTextFromFigureImage(panel.imageUrl, {
+          excludeTexts: excludeChromeTexts(plan, panel),
+          panelId: panel.id || panel.label,
+        });
 
-      return {
-        ...panel,
-        textNodesManifest: manifest,
-        imageNaturalWidth: manifest.imageWidth,
-        imageNaturalHeight: manifest.imageHeight,
-        textRegionsModel: model,
-        textRegions: undefined,
-      };
+        return {
+          ...panel,
+          textNodesManifest: manifest,
+          imageNaturalWidth: manifest.imageWidth,
+          imageNaturalHeight: manifest.imageHeight,
+          textRegionsModel: model,
+          textRegions: undefined,
+        };
+      } catch (err) {
+        console.error(`[enrichPlan] vision failed for panel ${panel.id || panel.label}:`, err);
+        return panel;
+      }
     })
   );
 

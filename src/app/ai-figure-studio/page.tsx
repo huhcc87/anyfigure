@@ -202,6 +202,18 @@ export default function AIFigureStudioPage() {
       }
     } catch (err) {
       console.error("[editable] build failed:", err);
+      const { buildEditableRecordSync } = await import("@/lib/makeEditable/persistEditableAssets");
+      try {
+        const pngUrl = plan.panels?.find((p) => p.imageUrl)?.imageUrl;
+        const rec = buildEditableRecordSync(figId, plan, pngUrl);
+        patchFigure(figId, (f) => ({
+          ...f,
+          editableReady: true,
+          svgUrl: rec.svgDataUrl,
+          textNodesUrl: rec.textNodesUrl,
+          pngUrl,
+        }));
+      } catch { /* fallback also failed */ }
     }
   }, [patchFigure]);
 
@@ -295,10 +307,14 @@ export default function AIFigureStudioPage() {
     } catch (err) {
       setGenerateError(`Panel generation failed: ${String(err)}`);
     } finally {
+      let latestPlan: FigurePlan | undefined;
       patchFigure(figId, (f) => {
-        if (f.plan?.panels?.length) void buildEditableForFigure(figId, f.plan);
+        latestPlan = f.plan ?? undefined;
         return { ...f, isEnrichingPanels: false, enrichProgress: undefined };
       });
+      if (latestPlan?.panels?.length) {
+        void buildEditableForFigure(figId, latestPlan);
+      }
     }
   };
 
@@ -440,6 +456,20 @@ export default function AIFigureStudioPage() {
     const fig = generatedFigures.find((f) => f.id === figId);
     if (!fig?.plan?.panels?.length) return;
     try {
+      const hasAppliedEdits = fig.plan.panels.some((p) =>
+        p.textNodesManifest?.regions.some((r) => r.userEdited)
+      );
+      const domEl = document.getElementById(`figure-export-${figId}`);
+      if (hasAppliedEdits && domEl) {
+        const { exportFigureDomToPng } = await import("@/lib/exportFigureDom");
+        const dataUrl = await exportFigureDomToPng(domEl, 2);
+        const a = document.createElement("a");
+        a.href = dataUrl;
+        a.download = `anyfigure-${figId}.png`;
+        a.click();
+        return;
+      }
+
       const { importFigurePlan } = await import("@/lib/planToEditor");
       const { exportElementsToPng } = await import("@/lib/canvasExport");
       const { elements, canvasWidth, canvasHeight } = importFigurePlan(fig.plan);

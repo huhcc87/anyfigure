@@ -6,11 +6,13 @@ import { toast } from "sonner";
 import type { FigurePlan } from "@/components/figures/FigureRenderer";
 import { FigureViewerToolbar } from "@/components/figures/FigureViewerToolbar";
 import { TextEditOverlay, type ImagePanelManifest } from "@/components/figures/TextEditOverlay";
+import { EditableLabelsLayer } from "@/components/figures/EditableLabelsLayer";
 import { getPanelTextManifest } from "@/lib/makeEditable/imageRegionUtils";
 import { cacheEditPlan } from "@/lib/figureStore";
 import { getEditableFigure, saveEditableFigure, type EditableFigureRecord } from "@/lib/makeEditable/editableFigureStore";
 import { isAiImagePlan } from "@/lib/makeEditable/isAiImagePlan";
 import { buildEditableRecordSync } from "@/lib/makeEditable/persistEditableAssets";
+import { TEXT_MANIFEST_VERSION } from "@/lib/makeEditable/textManifestConstants";
 import type { TextNodesDocument } from "@/types/editableFigure";
 
 const FigureRenderer = dynamic(() => import("@/components/figures/FigureRenderer"), { ssr: false });
@@ -58,6 +60,9 @@ export function FigureViewerCard({
 }: FigureViewerCardProps) {
   const [textEditActive, setTextEditActive] = useState(false);
   const [detectingLabels, setDetectingLabels] = useState(false);
+  const [pendingEdits, setPendingEdits] = useState<Record<string, string>>({});
+  /** Labels with applied text changes — shown as white overlays after Text Edit closes. */
+  const [appliedEdits, setAppliedEdits] = useState<Record<string, string>>({});
   const [whiteBackground, setWhiteBackground] = useState(true);
   const [displayPlan, setDisplayPlan] = useState(plan);
   const [editable, setEditable] = useState<EditableFigureRecord | null>(null);
@@ -72,7 +77,18 @@ export function FigureViewerCard({
     setDisplayPlan(plan);
   }, [plan]);
 
+  useEffect(() => {
+    const fromPlan: Record<string, string> = {};
+    for (const p of displayPlan.panels ?? []) {
+      for (const r of p.textNodesManifest?.regions ?? []) {
+        if (r.userEdited) fromPlan[r.id] = r.text;
+      }
+    }
+    setAppliedEdits(fromPlan);
+  }, [displayPlan.panels]);
+
   const aiImage = isAiImagePlan(displayPlan);
+  const hasAnyImage = displayPlan.panels?.some((p) => !!p.imageUrl) ?? false;
   const pngUrl = displayPlan.panels?.find((p) => p.imageUrl)?.imageUrl;
   const hasDetectedLabels = displayPlan.panels?.some((p) => (p.textNodesManifest?.regions.length ?? 0) > 0);
 
@@ -151,7 +167,11 @@ export function FigureViewerCard({
               ...p,
               textNodesManifest: {
                 ...p.textNodesManifest,
-                regions: p.textNodesManifest.regions.map((r) => (r.id === id ? { ...r, text } : r)),
+                regions: p.textNodesManifest.regions.map((r) =>
+                  r.id === id
+                    ? { ...r, text, userEdited: true, originalText: r.originalText ?? r.text }
+                    : r
+                ),
               },
             };
           });
@@ -159,26 +179,84 @@ export function FigureViewerCard({
         void cacheEditPlan(figureId, next);
         onPlanUpdate?.(next);
         persistEditable();
+        setAppliedEdits((prev) => ({ ...prev, ...edits }));
+        setPendingEdits({});
         return next;
       });
     },
     [figureId, onPlanUpdate, persistEditable]
   );
 
+  const rescanLabels = useCallback(async () => {
+    if (!hasAnyImage) return;
+    setDetectingLabels(true);
+    try {
+      const res = await fetch("/api/ai/extract-text-regions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan: displayPlan, force: true }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.status !== "ok") {
+        toast.error(data.error || "Re-scan failed.");
+        return;
+      }
+      const enriched = data.plan as FigurePlan;
+      setDisplayPlan(enriched);
+      onPlanUpdate?.(enriched);
+      await cacheEditPlan(figureId, enriched);
+      setPendingEdits({});
+      const rec = buildEditableRecordSync(figureId, enriched, pngUrl);
+      setEditable(rec);
+      await saveEditableFigure(rec);
+      toast.success(`Re-scanned ${data.labelCount ?? 0} labels`);
+    } catch (err) {
+      console.error("[text-edit] rescan failed:", err);
+      toast.error("Re-scan failed.");
+    } finally {
+      setDetectingLabels(false);
+    }
+  }, [hasAnyImage, displayPlan, figureId, onPlanUpdate, pngUrl]);
+
   const handleTextEditToggle = useCallback(
     async (active: boolean) => {
       setTextEditActive(active);
-      if (!active || !aiImage || hasDetectedLabels) return;
+      if (!active) {
+        setPendingEdits({});
+        return;
+      }
+      if (!hasAnyImage) return;
+
+      if (hasDetectedLabels) {
+        const stale = displayPlan.panels?.some(
+          (p) => p.textNodesManifest?.regions?.length && p.textNodesManifest.manifestVersion !== TEXT_MANIFEST_VERSION
+        );
+        if (!stale) return;
+      }
 
       setDetectingLabels(true);
       try {
+        const planForApi = {
+          ...displayPlan,
+          panels: displayPlan.panels?.map((p) => ({
+            ...p,
+            imageUrl: p.imageUrl && p.imageUrl.length > 500 ? p.imageUrl : p.imageUrl,
+          })),
+        };
         const res = await fetch("/api/ai/extract-text-regions", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ plan: displayPlan, force: !hasDetectedLabels }),
+          body: JSON.stringify({ plan: planForApi, force: !hasDetectedLabels }),
         });
+        if (!res.ok) {
+          const text = await res.text();
+          let msg = "Could not detect diagram labels.";
+          try { msg = JSON.parse(text).error || msg; } catch { /* use default */ }
+          toast.error(msg);
+          return;
+        }
         const data = await res.json();
-        if (!res.ok || data.status !== "ok") {
+        if (data.status !== "ok") {
           toast.error(data.error || "Could not detect diagram labels.");
           return;
         }
@@ -201,7 +279,7 @@ export function FigureViewerCard({
         setDetectingLabels(false);
       }
     },
-    [aiImage, hasDetectedLabels, displayPlan, figureId, onPlanUpdate, pngUrl]
+    [hasAnyImage, hasDetectedLabels, displayPlan, figureId, onPlanUpdate, pngUrl]
   );
 
   const handleApplied = useCallback((svgContent: string, textNodes: TextNodesDocument) => {
@@ -239,7 +317,7 @@ export function FigureViewerCard({
         onExport={onExportPng}
         onExportPng={onExportPng}
         onExportPptx={onExportPptx}
-        hasEditableLayer={hasEditable || aiImage}
+        hasEditableLayer={hasEditable || hasAnyImage}
         onPlanUpdate={(updated) => {
           setDisplayPlan(updated);
           onPlanUpdate?.(updated);
@@ -258,19 +336,38 @@ export function FigureViewerCard({
           enriching={isEnriching}
         />
 
+        {/* Label overlays only during Text Edit — avoids ghost text over the raster image */}
+        {hasDetectedLabels &&
+          !textEditActive &&
+          Object.keys(appliedEdits).length > 0 &&
+          previewEl &&
+          imageManifests.map(({ panelId, manifest }) => (
+            <EditableLabelsLayer
+              key={panelId}
+              container={previewEl}
+              panelId={panelId}
+              manifest={manifest}
+              edits={appliedEdits}
+              onlyIds={Object.keys(appliedEdits)}
+            />
+          ))}
+
         <TextEditOverlay
           active={textEditActive}
           loading={detectingLabels}
           domContainer={previewEl}
           imageManifests={imageManifests}
-          diagramOnly={aiImage}
-          showDiagramHint={aiImage && !hasDetectedLabels && !detectingLabels}
+          diagramOnly={hasAnyImage}
+          showDiagramHint={hasAnyImage && !hasDetectedLabels && !detectingLabels}
           textNodes={editable?.textNodes ?? null}
           svgContent={editable?.svg ?? null}
           figureId={figureId}
           onDomApply={handleDomApply}
           onApplied={handleApplied}
           onRetry={() => void handleTextEditToggle(true)}
+          onEditsChange={setPendingEdits}
+          onRescan={hasAnyImage ? () => void rescanLabels() : undefined}
+          committedEdits={appliedEdits}
         />
       </div>
 

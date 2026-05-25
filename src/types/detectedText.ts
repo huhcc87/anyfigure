@@ -8,6 +8,10 @@ export interface TextRegionEntry {
   text: string;
   confidence: number;
   panelId?: string;
+  /** Text at OCR detection time — used to know if user changed this label. */
+  originalText?: string;
+  /** True after the user applies an edit to this region. */
+  userEdited?: boolean;
 }
 
 /** Cached text-region manifest for one panel image. */
@@ -17,6 +21,8 @@ export interface TextRegionManifest {
   regions: TextRegionEntry[];
   model?: string;
   extractedAt?: number;
+  /** Bump when detection/mapping logic changes — triggers auto re-scan. */
+  manifestVersion?: number;
 }
 
 /** Combined figure-level text_nodes.json export. */

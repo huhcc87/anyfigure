@@ -1,4 +1,5 @@
 import type { CanvasElement } from "@/types";
+import { fitLabelFontSize } from "@/lib/makeEditable/imageRegionUtils";
 
 const SLIDE_W = 13.33;
 const SLIDE_H = 7.5;
@@ -104,12 +105,25 @@ async function drawElement(
       ctx.fillRect(el.x, el.y, el.width, el.height);
     }
   } else if (el.type === "text") {
-    applyTextStyle(ctx, el);
-    const lines = wrapText(ctx, el.content || el.label || "", el.width - 8);
-    const lineHeight = el.textRole === "title" ? 22 : el.textRole === "legend" ? 15 : 14;
-    lines.forEach((line, i) => {
-      ctx.fillText(line, el.x + 4, el.y + 16 + i * lineHeight);
-    });
+    if (el.partRole === "detected") {
+      const pad = 4;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(el.x - pad, el.y - pad, el.width + pad * 2, el.height + pad * 2);
+      const text = el.content || el.label || "";
+      const fontSize = fitLabelFontSize(text, el.width, el.height);
+      ctx.font = `600 ${fontSize}px system-ui, -apple-system, sans-serif`;
+      ctx.fillStyle = el.fill || "#111827";
+      ctx.textBaseline = "middle";
+      ctx.fillText(text, el.x + 2, el.y + el.height / 2);
+      ctx.textBaseline = "alphabetic";
+    } else {
+      applyTextStyle(ctx, el);
+      const lines = wrapText(ctx, el.content || el.label || "", el.width - 8);
+      const lineHeight = el.textRole === "title" ? 22 : el.textRole === "legend" ? 15 : 14;
+      lines.forEach((line, i) => {
+        ctx.fillText(line, el.x + 4, el.y + 16 + i * lineHeight);
+      });
+    }
   } else if (el.type === "shape") {
     ctx.fillStyle = el.fill || "#6366f125";
     ctx.strokeStyle = el.stroke || "#6366f1";

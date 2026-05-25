@@ -1,10 +1,16 @@
 "use client";
 
-import { memo, useCallback, useEffect, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { TextNode, TextNodesDocument } from "@/types/editableFigure";
 import type { TextRegionEntry, TextRegionManifest } from "@/types/detectedText";
-import { mapPixelBboxToDomRect } from "@/lib/makeEditable/imageRegionUtils";
+import {
+  expandDomMaskRect,
+  fitLabelFontSize,
+  mapPixelBboxToContainerRect,
+  sanitizeBbox,
+  syncManifestToNaturalSize,
+} from "@/lib/makeEditable/imageRegionUtils";
 
 export interface ImagePanelManifest {
   panelId: string;
@@ -27,10 +33,13 @@ interface TextEditOverlayProps {
   onApplied?: (svgContent: string, textNodes: TextNodesDocument) => void;
   onDomApply?: (edits: Record<string, string>) => void;
   onRetry?: () => void;
+  onEditsChange?: (edits: Record<string, string>) => void;
+  onRescan?: () => void;
+  /** Already-applied label edits (persisted on plan manifest). */
+  committedEdits?: Record<string, string>;
 }
 
 function measureImageManifests(container: HTMLElement, manifests: ImagePanelManifest[]): TextNode[] {
-  const containerRect = container.getBoundingClientRect();
   const nodes: TextNode[] = [];
 
   for (const { panelId, manifest } of manifests) {
@@ -38,10 +47,13 @@ function measureImageManifests(container: HTMLElement, manifests: ImagePanelMani
     const img =
       (container.querySelector(`[data-figure-image="${panelId}"]`) as HTMLImageElement | null) ||
       (container.querySelector("[data-figure-image]") as HTMLImageElement | null);
-    if (!img) continue;
+    if (!img || img.naturalWidth === 0) continue;
 
-    for (const r of manifest.regions) {
-      const layout = mapPixelBboxToDomRect(r.bbox, img, containerRect, manifest.imageWidth, manifest.imageHeight);
+    const synced = syncManifestToNaturalSize(manifest, img.naturalWidth, img.naturalHeight);
+
+    for (const r of synced.regions) {
+      const bbox = sanitizeBbox(r.bbox, r.text, synced.imageWidth, synced.imageHeight);
+      const layout = mapPixelBboxToContainerRect(bbox, img, container, synced.imageWidth, synced.imageHeight);
       nodes.push({
         id: r.id,
         text: r.text,
@@ -96,6 +108,25 @@ function updateManifestText(manifest: TextRegionManifest, id: string, text: stri
 
 export { updateManifestText };
 
+/** Find which node was hit by a click at (clickX, clickY) relative to overlay. */
+function hitTestNodes(nodes: TextNode[], clickX: number, clickY: number): TextNode | null {
+  // Check in reverse order so topmost nodes win
+  for (let i = nodes.length - 1; i >= 0; i--) {
+    const node = nodes[i];
+    const { x, y, w, h } = node.bbox;
+    // Add 4px padding for easier clicking
+    if (
+      clickX >= x - 4 &&
+      clickX <= x + w + 4 &&
+      clickY >= y - 4 &&
+      clickY <= y + h + 4
+    ) {
+      return node;
+    }
+  }
+  return null;
+}
+
 export const TextEditOverlay = memo(function TextEditOverlay({
   active,
   loading = false,
@@ -110,12 +141,17 @@ export const TextEditOverlay = memo(function TextEditOverlay({
   onApplied,
   onDomApply,
   onRetry,
+  onEditsChange,
+  onRescan,
+  committedEdits = {},
 }: TextEditOverlayProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [edits, setEdits] = useState<Record<string, string>>({});
   const [applying, setApplying] = useState(false);
   const [domNodes, setDomNodes] = useState<TextNode[]>([]);
+  const overlayRef = useRef<HTMLDivElement>(null);
 
   const useDom = !!domContainer;
 
@@ -138,17 +174,57 @@ export const TextEditOverlay = memo(function TextEditOverlay({
   }, [active, domContainer, imageManifests, diagramOnly]);
 
   const nodes = useDom ? domNodes : (textNodes?.nodes ?? []);
+  const displayEdits = { ...committedEdits, ...edits };
   const canvasWidth = useDom ? domContainer?.clientWidth ?? 1 : (textNodes?.canvasWidth ?? 1200);
   const canvasHeight = useDom ? domContainer?.clientHeight ?? 1 : (textNodes?.canvasHeight ?? 900);
   const editedCount = Object.keys(edits).length;
+  const pendingCount = Object.keys(edits).length;
+
+  useEffect(() => {
+    onEditsChange?.(edits);
+  }, [edits, onEditsChange]);
 
   const handleSelect = useCallback(
     (node: TextNode) => {
+      console.log("[TextEditOverlay] label clicked:", node.id, node.text);
       setSelectedId(node.id);
       setDraft(edits[node.id] ?? node.text);
     },
     [edits]
   );
+
+  /** Handle click on the overlay — use coordinate hit-testing to find which label. */
+  const handleOverlayClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (selectedId) return; // Modal is open, ignore overlay clicks
+      const rect = e.currentTarget.getBoundingClientRect();
+      const clickX = e.clientX - rect.left;
+      const clickY = e.clientY - rect.top;
+      const hit = hitTestNodes(nodes, clickX, clickY);
+      if (hit) {
+        console.log("[TextEditOverlay] hit-test matched:", hit.id, hit.text);
+        handleSelect(hit);
+      }
+    },
+    [nodes, handleSelect, selectedId]
+  );
+
+  /** Track hover via mouse position over overlay. */
+  const handleOverlayMouseMove = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (selectedId) return;
+      const rect = e.currentTarget.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const hit = hitTestNodes(nodes, mx, my);
+      setHoveredId(hit?.id ?? null);
+    },
+    [nodes, selectedId]
+  );
+
+  const handleOverlayMouseLeave = useCallback(() => {
+    setHoveredId(null);
+  }, []);
 
   const saveEdit = useCallback(() => {
     if (!selectedId) return;
@@ -227,10 +303,16 @@ export const TextEditOverlay = memo(function TextEditOverlay({
 
   if (useDom && !nodes.length) {
     return (
-      <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
-        <p className="text-xs text-slate-500 bg-white/90 px-3 py-1.5 rounded-full border border-slate-200">
-          No editable text regions found on this figure.
-        </p>
+      <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-auto">
+        <div className="max-w-sm mx-4 rounded-xl border border-slate-200 bg-white/95 px-4 py-3 text-center shadow-sm">
+          <p className="text-sm font-medium text-slate-800">No editable labels detected yet</p>
+          <p className="text-xs text-slate-600 mt-1">Click <strong>Re-scan labels</strong> above or close and reopen Text Edit to detect labels.</p>
+          {onRetry && (
+            <button type="button" className="mt-3 text-xs font-semibold text-teal-700 cursor-pointer" onClick={onRetry}>
+              Detect labels now
+            </button>
+          )}
+        </div>
       </div>
     );
   }
@@ -238,34 +320,108 @@ export const TextEditOverlay = memo(function TextEditOverlay({
   return (
     <>
       {showDiagramHint && (
-        <div className="absolute top-2 left-2 z-20 pointer-events-none">
+        <div className="absolute top-2 left-2 z-[55] pointer-events-none">
           <p className="text-[10px] text-slate-600 bg-white/95 px-2.5 py-1 rounded-full border border-slate-200 shadow-sm max-w-[240px] leading-snug">
-            Click a blue box to edit a diagram label
+            Click a label to edit diagram text
           </p>
         </div>
       )}
 
+      {/* ─── SOLID CLICK-CATCHING OVERLAY ─── */}
+      {/* This div catches ALL mouse events via pointer-events:auto.
+          Hit-testing is done via coordinates, not DOM stacking. */}
       {useDom ? (
-        <div className="absolute inset-0 z-10 pointer-events-none">
+        <div
+          ref={overlayRef}
+          className="absolute inset-0 z-[50]"
+          style={{
+            cursor: hoveredId ? "pointer" : "crosshair",
+            background: "transparent",
+          }}
+          onClick={handleOverlayClick}
+          onMouseMove={handleOverlayMouseMove}
+          onMouseLeave={handleOverlayMouseLeave}
+        >
           {nodes.map((node) => {
             const { x, y, w, h } = node.bbox;
             const isSelected = selectedId === node.id;
-            const isEdited = node.id in edits;
+            const isHovered = hoveredId === node.id;
+            const isPending = node.id in edits;
+            const isCommitted = node.id in committedEdits;
+            const isEdited = node.id in displayEdits;
+            const isDiagram = node.role === "detected";
+            const label = displayEdits[node.id] ?? node.text;
+            const fontSize = fitLabelFontSize(label, w, h);
+            const mask = expandDomMaskRect(node.bbox, isDiagram ? 6 : 3);
+
+            let borderClass: string;
+            let bgColor: string;
+            if (isSelected) {
+              borderClass = "border-2 border-teal-500 ring-2 ring-teal-400/40";
+              bgColor = "rgba(20, 184, 166, 0.18)";
+            } else if (isHovered) {
+              borderClass = isDiagram
+                ? "border-2 border-sky-500"
+                : "border-2 border-violet-500";
+              bgColor = isDiagram ? "rgba(56, 189, 248, 0.25)" : "rgba(167, 139, 250, 0.25)";
+            } else if (isPending) {
+              borderClass = "border-2 border-amber-500";
+              bgColor = "rgba(251, 191, 36, 0.12)";
+            } else if (isCommitted) {
+              borderClass = "border border-emerald-500/80";
+              bgColor = "rgba(16, 185, 129, 0.08)";
+            } else if (isDiagram) {
+              borderClass = "border-2 border-dashed border-sky-400/70";
+              bgColor = "transparent";
+            } else {
+              borderClass = "border-2 border-dashed border-violet-400/60";
+              bgColor = "transparent";
+            }
+
             return (
-              <button
+              <div
                 key={node.id}
-                type="button"
-                className={`absolute rounded border pointer-events-auto cursor-text transition-colors ${
-                  isSelected
-                    ? "border-teal-500 border-2 bg-teal-500/10"
-                    : isEdited
-                      ? "border-amber-400 border-2 bg-amber-50/50"
-                      : "border-sky-400/70 border bg-sky-50/30 hover:border-sky-500"
-                }`}
-                style={{ left: x, top: y, width: w, height: h }}
-                onClick={() => handleSelect(node)}
-                title={edits[node.id] ?? node.text}
-              />
+                className={`absolute rounded pointer-events-none ${borderClass}`}
+                style={{
+                  left: x,
+                  top: y,
+                  width: Math.max(w, 12),
+                  height: Math.max(h, 10),
+                  background: isEdited ? "#ffffff" : bgColor,
+                  transition: "background 150ms, border-color 150ms",
+                }}
+              >
+                {isEdited && isDiagram && (
+                  <div
+                    className="absolute"
+                    style={{
+                      left: mask.x - x,
+                      top: mask.y - y,
+                      width: mask.w,
+                      height: mask.h,
+                      background: "#ffffff",
+                      boxShadow: "0 0 0 1px #ffffff",
+                      zIndex: -1,
+                    }}
+                  />
+                )}
+                {isEdited && (
+                  <span
+                    className="block text-left"
+                    style={{
+                      fontSize,
+                      lineHeight: 1.05,
+                      fontWeight: 600,
+                      color: "#111827",
+                      padding: "1px 4px",
+                      whiteSpace: "nowrap",
+                      overflow: "visible",
+                    }}
+                  >
+                    {label}
+                  </span>
+                )}
+              </div>
             );
           })}
         </div>
@@ -302,24 +458,44 @@ export const TextEditOverlay = memo(function TextEditOverlay({
         </svg>
       )}
 
-      <div className="absolute top-2 right-2 z-20 flex items-center gap-2 pointer-events-auto">
-        <span className="text-[10px] font-medium text-slate-600 bg-white/90 px-2 py-1 rounded-full border border-slate-200">
-          {nodes.length} labels · {editedCount} edited
+      {/* ─── STATS BAR ─── */}
+      <div className="absolute top-2 right-2 z-[60] flex items-center gap-2 pointer-events-auto export-exclude">
+        {onRescan && (
+          <button
+            type="button"
+            className="text-[10px] font-medium text-slate-600 bg-white/90 px-2 py-1 rounded-full border border-slate-200 cursor-pointer hover:bg-slate-50"
+            onClick={(e) => { e.stopPropagation(); onRescan(); }}
+          >
+            Re-scan labels
+          </button>
+        )}
+        <span className="text-[10px] font-medium text-slate-600 bg-white/90 px-2 py-1 rounded-full border border-slate-200 export-exclude">
+          {nodes.length} labels · {pendingCount} pending{Object.keys(committedEdits).length ? ` · ${Object.keys(committedEdits).length} applied` : ""}
         </span>
         <button
           type="button"
-          disabled={editedCount === 0 || applying}
-          className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-teal-600 text-white disabled:opacity-40 cursor-pointer"
-          onClick={() => void handleApply()}
+          disabled={pendingCount === 0 || applying}
+          className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-teal-600 text-white disabled:opacity-40 cursor-pointer export-exclude"
+          onClick={(e) => { e.stopPropagation(); void handleApply(); }}
         >
-          {applying ? "Applying…" : "Apply ✓"}
+          {applying ? "Applying…" : "Apply edits"}
         </button>
       </div>
 
+      {/* ─── EDIT MODAL ─── */}
       {selectedId && (
-        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/20 pointer-events-auto">
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md mx-4 p-5" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-sm font-semibold text-slate-900 mb-3">Edit text</h3>
+        <div
+          className="absolute inset-0 z-[70] flex items-center justify-center bg-black/30 pointer-events-auto"
+          onClick={() => setSelectedId(null)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md mx-4 p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-sm font-semibold text-slate-900 mb-1">Edit label text</h3>
+            <p className="text-[11px] text-slate-500 mb-3">
+              Original: <span className="font-mono text-slate-700">{nodes.find((n) => n.id === selectedId)?.text}</span>
+            </p>
             <textarea
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
@@ -330,13 +506,21 @@ export const TextEditOverlay = memo(function TextEditOverlay({
                 if ((e.metaKey || e.ctrlKey) && e.key === "Enter") saveEdit();
               }}
             />
-            <p className="text-[10px] text-slate-500 mt-2">⌘ ↵ to save · Esc to cancel</p>
+            <p className="text-[10px] text-slate-500 mt-2">Cmd/Ctrl + Enter to save · Esc to cancel</p>
             <div className="flex justify-end gap-2 mt-4">
-              <button type="button" className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 cursor-pointer" onClick={() => setSelectedId(null)}>
+              <button
+                type="button"
+                className="px-3 py-1.5 text-xs rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50"
+                onClick={() => setSelectedId(null)}
+              >
                 Cancel
               </button>
-              <button type="button" className="px-3 py-1.5 text-xs rounded-lg bg-slate-900 text-white cursor-pointer" onClick={saveEdit}>
-                Save
+              <button
+                type="button"
+                className="px-3 py-1.5 text-xs rounded-lg bg-teal-600 text-white cursor-pointer hover:bg-teal-700"
+                onClick={saveEdit}
+              >
+                Save edit
               </button>
             </div>
           </div>

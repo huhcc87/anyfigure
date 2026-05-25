@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import type { FigurePlan } from "@/components/figures/FigureRenderer";
 import { enrichPlanWithVisionDirect } from "@/lib/makeEditable/enrichPlanVision";
 
+export const maxDuration = 120;
+
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as { plan?: FigurePlan; force?: boolean };

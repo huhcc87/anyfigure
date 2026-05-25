@@ -14,7 +14,8 @@ export async function enrichPlanWithVision(
   plan: FigurePlan,
   force = false
 ): Promise<{ plan: FigurePlan; labelCount: number }> {
-  if (!isAiImagePlan(plan)) {
+  const hasImagePanels = plan.panels?.some((p) => !!p.imageUrl);
+  if (!hasImagePanels) {
     return { plan, labelCount: 0 };
   }
 
@@ -29,10 +30,13 @@ export async function enrichPlanWithVision(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ plan, force }),
   });
-  const data = await res.json();
   if (!res.ok) {
-    throw new Error(data.error || "Label detection failed");
+    const text = await res.text();
+    let msg = "Label detection failed";
+    try { msg = JSON.parse(text).error || msg; } catch { /* use default */ }
+    throw new Error(msg);
   }
+  const data = await res.json();
   return { plan: data.plan as FigurePlan, labelCount: data.labelCount || 0 };
 }
 

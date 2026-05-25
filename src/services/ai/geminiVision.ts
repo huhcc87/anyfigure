@@ -2,8 +2,11 @@ import type { TextRegionEntry, TextRegionManifest } from "@/types/detectedText";
 import { generateId } from "@/lib/utils";
 import {
   cleanTextRegions,
-  getImageDimensionsFromBase64,
+  sanitizeBbox,
 } from "@/lib/makeEditable/imageRegionUtils";
+import { resolveImageDimensions } from "@/lib/makeEditable/resolveImageDimensions.server";
+
+import { TEXT_MANIFEST_VERSION } from "@/lib/makeEditable/textManifestConstants";
 
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
 
@@ -46,8 +49,10 @@ function parseGeminiRegions(raw: string, imageWidth: number, imageHeight: number
       let bbox: [number, number, number, number];
       if (Array.isArray(r.bbox) && r.bbox.length >= 4) {
         const vals = r.bbox.map((v) => Number(v));
-        const normalized = vals.every((v) => v >= 0 && v <= 1);
-        if (normalized) {
+        const allNormalized = vals.every((v) => v >= 0 && v <= 1);
+        const maybeNormalized = vals[0] <= 1 && vals[1] <= 1 && vals[2] <= 1 && vals[3] <= 1;
+
+        if (allNormalized || maybeNormalized) {
           bbox = [
             Math.round(vals[0] * imageWidth),
             Math.round(vals[1] * imageHeight),
@@ -55,26 +60,37 @@ function parseGeminiRegions(raw: string, imageWidth: number, imageHeight: number
             Math.max(Math.round(vals[3] * imageHeight), 4),
           ];
         } else {
-          bbox = [
-            Math.round(vals[0]),
-            Math.round(vals[1]),
-            Math.max(Math.round(vals[2]), 4),
-            Math.max(Math.round(vals[3]), 4),
-          ];
+          bbox = sanitizeBbox(
+            [
+              Math.round(vals[0]),
+              Math.round(vals[1]),
+              Math.max(Math.round(vals[2]), 4),
+              Math.max(Math.round(vals[3]), 4),
+            ],
+            r.text!.trim(),
+            imageWidth,
+            imageHeight
+          );
         }
       } else {
-        bbox = [
-          Math.round(clamp01(r.x ?? 0) * imageWidth),
-          Math.round(clamp01(r.y ?? 0) * imageHeight),
-          Math.max(Math.round(clamp01(r.w ?? 0.1, 0.02, 1) * imageWidth), 4),
-          Math.max(Math.round(clamp01(r.h ?? 0.03, 0.01, 1) * imageHeight), 4),
-        ];
+        bbox = sanitizeBbox(
+          [
+            Math.round(clamp01(r.x ?? 0) * imageWidth),
+            Math.round(clamp01(r.y ?? 0) * imageHeight),
+            Math.max(Math.round(clamp01(r.w ?? 0.1, 0.02, 1) * imageWidth), 4),
+            Math.max(Math.round(clamp01(r.h ?? 0.03, 0.01, 1) * imageHeight), 4),
+          ],
+          r.text!.trim(),
+          imageWidth,
+          imageHeight
+        );
       }
       return {
         id: generateId("r"),
         bbox,
         text: r.text!.trim(),
         confidence: typeof r.confidence === "number" ? r.confidence : 0.88,
+        originalText: r.text!.trim(),
       };
     });
 }
@@ -82,6 +98,14 @@ function parseGeminiRegions(raw: string, imageWidth: number, imageHeight: number
 export interface ExtractFigureTextOptions {
   excludeTexts?: string[];
   panelId?: string;
+}
+
+async function fetchImageAsBase64(url: string): Promise<{ data: string; mimeType: string }> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to fetch image: ${res.status}`);
+  const buf = await res.arrayBuffer();
+  const ct = res.headers.get("content-type") || "image/png";
+  return { data: Buffer.from(buf).toString("base64"), mimeType: ct.split(";")[0] };
 }
 
 /** Extract text regions from figure image → pixel manifest (FigureLabs-style). */
@@ -93,23 +117,42 @@ export async function extractTextFromFigureImage(
   if (!apiKey) throw new Error("GEMINI_API_KEY not set");
 
   const model = process.env.GEMINI_TEXT_MODEL || "gemini-2.5-flash";
-  const { data, mimeType } = stripDataUrl(imageUrl);
-  const { width: imageWidth, height: imageHeight } = getImageDimensionsFromBase64(data, mimeType);
 
-  const prompt = `You are analyzing a scientific figure image (${imageWidth}x${imageHeight}px) for a figure editor.
-List EVERY distinct SHORT text label in the diagram area: axis labels, tick labels, gene names, protein complex names, panel letters, arrow labels, and small annotations.
+  let data: string;
+  let mimeType: string;
+  if (imageUrl.startsWith("data:")) {
+    ({ data, mimeType } = stripDataUrl(imageUrl));
+  } else if (imageUrl.startsWith("http")) {
+    ({ data, mimeType } = await fetchImageAsBase64(imageUrl));
+  } else {
+    ({ data, mimeType } = stripDataUrl(imageUrl));
+  }
 
-Do NOT include long caption paragraphs or figure legends (multi-sentence blocks).
+  const { width: imageWidth, height: imageHeight } = await resolveImageDimensions(data, mimeType);
 
-Return ONLY valid JSON:
-{"regions":[{"text":"TSS","bbox":[120,340,42,18],"confidence":0.92}]}
+  const prompt = `You analyze a scientific figure (${imageWidth}×${imageHeight}px) for a text editor overlay.
 
-Rules:
-- bbox = [x, y, width, height] in PIXELS, origin top-left, relative to full ${imageWidth}x${imageHeight} image
-- One entry per distinct text element
-- Exact text as shown (preserve capitalization)
-- Include small labels (TSS, kb, H3K4me3)
-- Skip duplicate entries and long body text`;
+Return ONLY JSON:
+{"regions":[{"text":"Insulin","bbox":[0.052,0.118,0.072,0.022],"confidence":0.93}]}
+
+CRITICAL bbox rules — bbox = [x, y, width, height] ALL normalized 0.0–1.0 relative to the FULL image:
+- x,y = top-left corner of the text ink (NOT center, NOT x2/y2 corner coords)
+- width = horizontal span of the text (width > height for horizontal labels)
+- height = vertical span of ONE line (typically 0.012–0.04)
+- Do NOT return [x1,y1,x2,y2] corner pairs
+
+Be EXHAUSTIVE — detect EVERY readable text string in the diagram, including:
+- Panel titles (e.g. "Panel A: ...")
+- Column/section headers (e.g. "Normal", "Adenoma with Obesity")
+- Sub-headers and stats (e.g. "log2 FC ≥ 2 or ≤ -2, p < 0.05")
+- Gene/protein names inside shapes (IRS1, β-catenin, S6K1, PI3K, mTOR)
+- miRNA names (miR-34a, miR-455, miR-378a, miR-219b, miR-133b)
+- Pathway labels (Insulin Pathway, Wnt/β-catenin Pathway, mTOR Pathway)
+- Receptor names, histone marks (H3K4me3, H3K27me3), axis labels, arrows labels
+- Text inside colored boxes and ovals
+
+Only EXCLUDE: multi-sentence paragraph captions at the very bottom (3+ sentences), and duplicate entries at the same spot.
+Use exact text as shown. Aim for 40–80 regions on complex pathway diagrams.`;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 90000);
@@ -132,6 +175,7 @@ Rules:
         generationConfig: {
           temperature: 0.1,
           responseMimeType: "application/json",
+          maxOutputTokens: 8192,
         },
       }),
     });
@@ -159,6 +203,7 @@ Rules:
         regions,
         model,
         extractedAt: Date.now(),
+        manifestVersion: TEXT_MANIFEST_VERSION,
       },
       model,
     };

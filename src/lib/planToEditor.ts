@@ -2,7 +2,7 @@ import type { FigurePlan, PanelSpec } from "@/components/figures/FigureRenderer"
 import type { TextRegionManifest } from "@/types/detectedText";
 import type { AssemblyElement } from "@/components/figures/assembly/BioAssets";
 import { getPanelScene } from "@/lib/panelScenes";
-import { getPanelTextManifest, mapPixelBboxToLayout } from "@/lib/makeEditable/imageRegionUtils";
+import { getPanelTextManifest, mapPixelBboxToLayout, sanitizeBbox } from "@/lib/makeEditable/imageRegionUtils";
 import type { CanvasElement } from "@/types";
 import { generateId } from "@/lib/utils";
 
@@ -267,8 +267,10 @@ function addDetectedLabelsFromManifest(
   zStart: number
 ): number {
   let z = zStart;
-  for (const r of manifest.regions) {
-    const layout = mapPixelBboxToLayout(r.bbox, manifest.imageWidth, manifest.imageHeight, imgW, imgH, imgX, imgY);
+  const edited = manifest.regions.filter((r) => r.userEdited);
+  for (const r of edited) {
+    const bbox = sanitizeBbox(r.bbox, r.text, manifest.imageWidth, manifest.imageHeight);
+    const layout = mapPixelBboxToLayout(bbox, manifest.imageWidth, manifest.imageHeight, imgW, imgH, imgX, imgY);
     elements.push({
       id: r.id,
       type: "text",
@@ -284,10 +286,10 @@ function addDetectedLabelsFromManifest(
       visible: true,
       content: r.text,
       fill: "#111827",
-      zIndex: z++,
+      zIndex: zStart + 200,
     });
   }
-  return z;
+  return zStart + (edited.length ? 201 : 1);
 }
 
 /** Add panel content — AI image panels show the raster + detected text labels. */
@@ -320,7 +322,7 @@ function addPanelContent(
     });
     const manifest = getPanelTextManifest(panel);
     if (manifest?.regions.length) {
-      return addDetectedLabelsFromManifest(elements, manifest, x, y, width, height, zStart + 100);
+      return addDetectedLabelsFromManifest(elements, manifest, x, y, width, height, zStart + 200);
     }
     return zStart + 1;
   }

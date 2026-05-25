@@ -16,7 +16,7 @@ export interface ContainedImageLayout {
   scale: number;
 }
 
-/** Read PNG/JPEG dimensions from base64 image bytes. */
+/** Read PNG/JPEG/WebP dimensions from base64 image bytes. */
 export function getImageDimensionsFromBase64(data: string, mimeType: string): { width: number; height: number } {
   const buf = typeof Buffer !== "undefined" ? Buffer.from(data, "base64") : Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
 
@@ -42,7 +42,28 @@ export function getImageDimensionsFromBase64(data: string, mimeType: string): { 
     }
   }
 
+  // WebP: RIFF....WEBP
+  if (buf.length > 30 && buf[0] === 0x52 && buf[1] === 0x49 && buf[8] === 0x57 && buf[9] === 0x45) {
+    const chunk = String.fromCharCode(buf[12], buf[13], buf[14], buf[14] === 0x56 ? buf[15] : buf[14]);
+    if (chunk.startsWith("VP8")) {
+      if (buf[12] === 0x56 && buf[13] === 0x50 && buf[14] === 0x38 && buf[15] === 0x20) {
+        return { width: readU16LE(buf, 26) & 0x3fff, height: readU16LE(buf, 28) & 0x3fff };
+      }
+      if (buf[12] === 0x56 && buf[13] === 0x50 && buf[14] === 0x38 && buf[15] === 0x4c) {
+        return { width: readU24LE(buf, 24) + 1, height: readU24LE(buf, 27) + 1 };
+      }
+    }
+  }
+
   return { width: 1024, height: 768 };
+}
+
+function readU16LE(buf: Buffer | Uint8Array, i: number): number {
+  return buf[i] | (buf[i + 1] << 8);
+}
+
+function readU24LE(buf: Buffer | Uint8Array, i: number): number {
+  return buf[i] | (buf[i + 1] << 8) | (buf[i + 2] << 16);
 }
 
 /** Map pixel bbox in image space → layout box (object-contain inside cell). */
@@ -78,7 +99,58 @@ export function getContainedLayout(imageWidth: number, imageHeight: number, boxW
   };
 }
 
-/** DOM: map pixel bbox using rendered <img> with object-contain. */
+/** Re-scale manifest bboxes when cached dimensions differ from loaded image. */
+export function syncManifestToNaturalSize(
+  manifest: TextRegionManifest,
+  naturalWidth: number,
+  naturalHeight: number
+): TextRegionManifest {
+  if (
+    !naturalWidth ||
+    !naturalHeight ||
+    (naturalWidth === manifest.imageWidth && naturalHeight === manifest.imageHeight)
+  ) {
+    return manifest;
+  }
+  const sx = naturalWidth / manifest.imageWidth;
+  const sy = naturalHeight / manifest.imageHeight;
+  return {
+    ...manifest,
+    imageWidth: naturalWidth,
+    imageHeight: naturalHeight,
+    regions: manifest.regions.map((r) => ({
+      ...r,
+      bbox: [
+        Math.round(r.bbox[0] * sx),
+        Math.round(r.bbox[1] * sy),
+        Math.max(Math.round(r.bbox[2] * sx), 4),
+        Math.max(Math.round(r.bbox[3] * sy), 4),
+      ] as PixelBbox,
+    })),
+  };
+}
+
+/** Map pixel bbox → coordinates relative to a DOM container (e.g. preview card). */
+export function mapPixelBboxToContainerRect(
+  bbox: PixelBbox,
+  img: HTMLImageElement,
+  container: HTMLElement,
+  manifestW: number,
+  manifestH: number
+): LayoutRect {
+  const root = img.closest("[data-figure-overlay-root]") as HTMLElement | null;
+  const anchorRect = (root || img).getBoundingClientRect();
+  const containerRect = container.getBoundingClientRect();
+  const local = mapPixelBboxToDomRect(bbox, img, anchorRect, manifestW, manifestH);
+  return {
+    x: local.x + (anchorRect.left - containerRect.left),
+    y: local.y + (anchorRect.top - containerRect.top),
+    w: local.w,
+    h: local.h,
+  };
+}
+
+/** DOM: map pixel bbox using rendered <img> (uniform scale, no extra letterbox when img is w-auto/h-auto). */
 export function mapPixelBboxToDomRect(
   bbox: PixelBbox,
   img: HTMLImageElement,
@@ -87,16 +159,45 @@ export function mapPixelBboxToDomRect(
   manifestH: number
 ): LayoutRect {
   const layout = img.getBoundingClientRect();
-  const naturalW = manifestW || img.naturalWidth || layout.width;
-  const naturalH = manifestH || img.naturalHeight || layout.height;
-  const contained = getContainedLayout(naturalW, naturalH, layout.width, layout.height);
+  if (layout.width < 2 || layout.height < 2) {
+    return { x: 0, y: 0, w: 10, h: 8 };
+  }
+
+  const naturalW = img.naturalWidth > 0 ? img.naturalWidth : manifestW;
+  const naturalH = img.naturalHeight > 0 ? img.naturalHeight : manifestH;
+  const scale = Math.min(layout.width / naturalW, layout.height / naturalH);
+  const offsetX = (layout.width - naturalW * scale) / 2;
+  const offsetY = (layout.height - naturalH * scale) / 2;
+
   const [x, y, w, h] = bbox;
+  // Re-scale if manifest dimensions differ from actual image
+  const mx = manifestW > 0 && naturalW !== manifestW ? x * (naturalW / manifestW) : x;
+  const my = manifestH > 0 && naturalH !== manifestH ? y * (naturalH / manifestH) : y;
+  const mw = manifestW > 0 && naturalW !== manifestW ? w * (naturalW / manifestW) : w;
+  const mh = manifestH > 0 && naturalH !== manifestH ? h * (naturalH / manifestH) : h;
+
   return {
-    x: layout.left - containerRect.left + contained.offsetX + x * contained.scale,
-    y: layout.top - containerRect.top + contained.offsetY + y * contained.scale,
-    w: Math.max(w * contained.scale, 10),
-    h: Math.max(h * contained.scale, 8),
+    x: layout.left - containerRect.left + offsetX + mx * scale,
+    y: layout.top - containerRect.top + offsetY + my * scale,
+    w: Math.max(mw * scale, 8),
+    h: Math.max(mh * scale, 6),
   };
+}
+
+export function expandDomMaskRect(rect: LayoutRect, pad = 4): LayoutRect {
+  return {
+    x: Math.max(0, rect.x - pad),
+    y: Math.max(0, rect.y - pad),
+    w: rect.w + pad * 2,
+    h: rect.h + pad * 2,
+  };
+}
+
+/** Estimate font size so label fits inside box width (DOM/canvas). */
+export function fitLabelFontSize(text: string, boxW: number, boxH: number, max = 13, min = 6): number {
+  let fs = Math.min(max, Math.max(min, boxH - 3));
+  while (fs > min && text.length * fs * 0.52 > boxW - 4) fs -= 0.5;
+  return fs;
 }
 
 function iou(a: PixelBbox, b: PixelBbox): number {
@@ -111,6 +212,115 @@ function iou(a: PixelBbox, b: PixelBbox): number {
   return union > 0 ? inter / union : 0;
 }
 
+/** Fix Gemini bbox mistakes: corner coords, swapped w/h, absurd aspect ratios. */
+export function sanitizeBbox(
+  bbox: PixelBbox,
+  text: string,
+  imageWidth: number,
+  imageHeight: number
+): PixelBbox {
+  let [x, y, w, h] = bbox.map((v) => Math.round(Number(v) || 0)) as PixelBbox;
+
+  // Gemini often returns [x1,y1,x2,y2] instead of [x,y,w,h]
+  if (w > x && h > y && w <= imageWidth * 1.02 && h <= imageHeight * 1.02) {
+    const cw = w - x;
+    const ch = h - y;
+    if (cw >= 4 && ch >= 4 && (ch / Math.max(cw, 1) > 2 || cw / Math.max(ch, 1) > 2)) {
+      w = cw;
+      h = ch;
+    }
+  }
+
+  // Normalized 0–1 accidentally passed as pixels (tiny boxes) — skip, handled upstream
+
+  const estW = Math.min(Math.max(text.length * imageWidth * 0.010, 24), imageWidth * 0.42);
+  const estH = Math.max(imageHeight * 0.012, 12);
+
+  // Tall skinny boxes for horizontal text labels
+  if (h > w * 2 && text.length < 60) {
+    const cx = x + w / 2;
+    const cy = y + Math.min(h, estH * 2) / 2;
+    if (h > estH * 2.5) {
+      h = estH;
+      w = Math.max(w, estW);
+      x = Math.round(cx - w / 2);
+      y = Math.round(cy - h / 2);
+    } else if (w < estW * 0.5) {
+      w = estW;
+      x = Math.round(cx - w / 2);
+    }
+  }
+
+  // Wide flat boxes with huge width
+  if (w > estW * 4 && text.length < 20) {
+    const cx = x + w / 2;
+    w = estW;
+    x = Math.round(cx - w / 2);
+  }
+
+  if (h > w * 3 && w < 30) {
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    w = estW;
+    h = estH;
+    x = Math.round(cx - w / 2);
+    y = Math.round(cy - h / 2);
+  }
+
+  x = Math.max(0, Math.min(x, imageWidth - 4));
+  y = Math.max(0, Math.min(y, imageHeight - 4));
+  w = Math.max(4, Math.min(w, imageWidth - x));
+  h = Math.max(4, Math.min(h, imageHeight - y));
+
+  return [x, y, w, h];
+}
+
+/** Estimate bbox width/height from label text when vision coords are unusable. */
+export function estimateBboxForText(
+  text: string,
+  imageWidth: number,
+  imageHeight: number,
+  x: number,
+  y: number
+): PixelBbox {
+  const w = Math.min(Math.max(text.length * imageWidth * 0.010, 20), imageWidth * 0.4);
+  const h = Math.max(imageHeight * 0.013, 13);
+  return sanitizeBbox(
+    [x, y, w, h],
+    text,
+    imageWidth,
+    imageHeight
+  );
+}
+
+function normalizeTextKey(text: string): string {
+  return text.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/** Drop spatial duplicates (same text, overlapping or nearly same position). */
+export function mergeDuplicateRegions(
+  regions: TextRegionEntry[],
+  imageWidth: number,
+  imageHeight: number
+): TextRegionEntry[] {
+  const kept: TextRegionEntry[] = [];
+  for (const r of regions) {
+    const dupIdx = kept.findIndex((k) => {
+      if (normalizeTextKey(k.text) !== normalizeTextKey(r.text)) return false;
+      const dx = Math.abs(k.bbox[0] - r.bbox[0]);
+      const dy = Math.abs(k.bbox[1] - r.bbox[1]);
+      const close = dx < imageWidth * 0.035 && dy < imageHeight * 0.022;
+      return close || iou(k.bbox, r.bbox) > 0.12;
+    });
+    if (dupIdx >= 0) {
+      if ((r.confidence ?? 0) > (kept[dupIdx].confidence ?? 0)) kept[dupIdx] = r;
+    } else {
+      kept.push(r);
+    }
+  }
+  return kept;
+}
+
 /** Filter caption blocks, tiny boxes, and duplicates. */
 export function cleanTextRegions(
   regions: TextRegionEntry[],
@@ -119,35 +329,41 @@ export function cleanTextRegions(
   excludeTexts: string[] = []
 ): TextRegionEntry[] {
   const exclude = new Set(excludeTexts.map((t) => t.trim().toLowerCase()).filter(Boolean));
+  const longExcludes = excludeTexts.filter((t) => t.trim().length > 120).map((t) => t.trim().toLowerCase());
   const imgArea = imageWidth * imageHeight;
 
   const filtered = regions.filter((r) => {
     const text = r.text.trim();
     if (!text || text.length < 1) return false;
-    if (exclude.has(text.toLowerCase())) return false;
+
+    const key = text.toLowerCase();
+    if (exclude.has(key)) return false;
+    if (longExcludes.some((ex) => ex.includes(key) && key.length > 40)) return false;
 
     const [x, y, w, h] = r.bbox;
-    if (w < 4 || h < 4) return false;
+    if (w < 3 || h < 3) return false;
     if (x + w < 0 || y + h < 0 || x > imageWidth || y > imageHeight) return false;
 
+    const aspect = h / Math.max(w, 1);
+    if (aspect > 5 && text.length < 30) return false;
+    if (w / Math.max(h, 1) > 15 && text.length < 6) return false;
+
     const area = w * h;
-    if (area / imgArea > 0.12) return false;
-    if (text.length > 100 && h / imageHeight > 0.06) return false;
-    if (text.length > 200) return false;
+    const isTitle = text.length < 90 && text.includes(":");
+    if (!isTitle && area / imgArea > 0.18) return false;
+    if (isTitle && area / imgArea > 0.35) return false;
+    if (text.length > 280) return false;
+    if (text.length > 120 && h / imageHeight > 0.12 && text.split(/\s+/).length > 18) return false;
 
     return true;
   });
 
-  const kept: TextRegionEntry[] = [];
-  for (const r of filtered) {
-    const dup = kept.some(
-      (k) =>
-        k.text.toLowerCase() === r.text.toLowerCase() &&
-        (iou(k.bbox, r.bbox) > 0.35 || Math.abs(k.bbox[0] - r.bbox[0]) < 6)
-    );
-    if (!dup) kept.push(r);
-  }
-  return kept;
+  const sanitized = filtered.map((r) => ({
+    ...r,
+    bbox: sanitizeBbox(r.bbox, r.text, imageWidth, imageHeight),
+  }));
+
+  return mergeDuplicateRegions(sanitized, imageWidth, imageHeight);
 }
 
 export function normalizedToPixel(

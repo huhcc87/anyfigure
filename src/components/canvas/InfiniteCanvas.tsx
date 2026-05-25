@@ -2,7 +2,7 @@
 
 import { useRef, useCallback, useState, useEffect } from "react";
 import { useEditorStore } from "@/store/editorStore";
-import { loadPlanForWorkspace, clearPlanFromStorage, getEditFigureId, loadWorkspaceSnapshotIdb, saveWorkspaceSnapshotIdb, loadFigurePlanIdb } from "@/lib/figureStore";
+import { loadPlanForWorkspace, clearPlanFromStorage, getEditFigureId, loadWorkspaceSnapshotIdb, saveWorkspaceSnapshotIdb, loadFigurePlanIdb, cacheEditPlan } from "@/lib/figureStore";
 import { getPanelTextManifest } from "@/lib/makeEditable/imageRegionUtils";
 import type { CanvasElement } from "@/types";
 
@@ -350,9 +350,9 @@ export default function InfiniteCanvas() {
   const handleElementMouseDown = useCallback((e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     if (tool !== "select" || editingId) return;
-    setSelectedIds([id]);
     const el = elements.find((item) => item.id === id);
     if (!el || el.locked) return;
+    setSelectedIds([id]);
     setDragging({ id, startX: e.clientX, startY: e.clientY, elX: el.x, elY: el.y });
   }, [tool, elements, setSelectedIds, editingId]);
 
@@ -368,7 +368,26 @@ export default function InfiniteCanvas() {
     pushHistory();
     updateElement(id, { content });
     setEditingId(null);
-  }, [updateElement, pushHistory]);
+
+    const el = elements.find((item) => item.id === id);
+    if (el?.partRole === "detected" && activeFigureId) {
+      void (async () => {
+        const plan = await loadFigurePlanIdb(activeFigureId);
+        if (!plan?.panels?.length) return;
+        const panels = plan.panels.map((p) => {
+          if (!p.textNodesManifest?.regions.some((r) => r.id === id)) return p;
+          return {
+            ...p,
+            textNodesManifest: {
+              ...p.textNodesManifest,
+              regions: p.textNodesManifest.regions.map((r) => (r.id === id ? { ...r, text: content } : r)),
+            },
+          };
+        });
+        await cacheEditPlan(activeFigureId, { ...plan, panels });
+      })();
+    }
+  }, [updateElement, pushHistory, elements, activeFigureId]);
 
   const gridStyle = showGrid ? {
     backgroundImage: `
@@ -434,8 +453,9 @@ export default function InfiniteCanvas() {
                 opacity: el.opacity,
                 zIndex: el.zIndex + 1,
                 cursor: tool === "select"
-                  ? isEditing ? "text" : el.locked ? "not-allowed" : el.type === "text" ? "text" : "move"
+                  ? isEditing ? "text" : el.locked ? "default" : el.type === "text" ? "text" : "move"
                   : "default",
+                pointerEvents: el.locked ? "none" : "auto",
               }}
               onMouseDown={(e) => handleElementMouseDown(e, el.id)}
               onDoubleClick={(e) => handleElementDoubleClick(e, el.id, el)}
@@ -492,15 +512,12 @@ export default function InfiniteCanvas() {
                   className="w-full outline-none px-0.5 py-0 rounded"
                   style={{
                     ...textStyles(el),
-                    color:
-                      el.partRole === "detected" && !isEditing && !isSelected
-                        ? "transparent"
-                        : (textStyles(el).color as string),
+                    color: el.partRole === "detected" ? "#111827" : (textStyles(el).color as string),
                     outline:
                       el.partRole === "detected"
                         ? isSelected || isEditing
                           ? "2px solid #6366f1"
-                          : "none"
+                          : "1px solid rgba(99,102,241,0.25)"
                         : isSelected
                           ? "2px solid #6366f1"
                           : "1px dashed rgba(99,102,241,0.3)",
@@ -509,15 +526,13 @@ export default function InfiniteCanvas() {
                     whiteSpace: "pre-wrap",
                     wordBreak: "break-word",
                     background:
-                      el.partRole === "detected" && (isEditing || isSelected)
-                        ? "rgba(255,255,255,0.95)"
-                        : el.partRole === "detected"
-                          ? "transparent"
-                          : isEditing
-                            ? "rgba(99,102,241,0.06)"
-                            : isSelected
-                              ? "rgba(99,102,241,0.04)"
-                              : "transparent",
+                      el.partRole === "detected"
+                        ? "rgba(255,255,255,0.94)"
+                        : isEditing
+                          ? "rgba(99,102,241,0.06)"
+                          : isSelected
+                            ? "rgba(99,102,241,0.04)"
+                            : "transparent",
                   }}
                   onBlur={(e) => {
                     if (isEditing) finishEditing(el.id, e.currentTarget.textContent || "");
@@ -537,8 +552,9 @@ export default function InfiniteCanvas() {
                 <div
                   className="w-full h-full flex items-center justify-center rounded overflow-hidden bg-white"
                   style={{
-                    outline: isSelected ? "2px solid #6366f1" : "1px solid #e5e7eb",
+                    outline: isSelected ? "2px solid #6366f1" : "none",
                     outlineOffset: isSelected ? 2 : 0,
+                    pointerEvents: el.locked ? "none" : "auto",
                   }}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}

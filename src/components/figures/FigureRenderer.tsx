@@ -159,18 +159,23 @@ function ImagePanel({
   const maxH = preview ? (single ? 520 : 420) : fullSize ? 560 : 320;
   return (
     <div className="flex items-center justify-center w-full" style={{ minHeight: preview && single ? 480 : undefined }}>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={imageUrl}
-        alt={description}
-        data-figure-image={panelId || "main"}
-        className="rounded max-w-full w-auto h-auto object-contain"
-        style={{ maxHeight: maxH }}
-        onError={(e) => {
-          const t = e.target as HTMLImageElement;
-          t.style.display = "none";
-        }}
-      />
+      <div
+        data-figure-overlay-root={panelId || "main"}
+        className="relative inline-block leading-none"
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={imageUrl}
+          alt={description}
+          data-figure-image={panelId || "main"}
+          className="rounded max-w-full w-auto h-auto object-contain block"
+          style={{ maxHeight: maxH }}
+          onError={(e) => {
+            const t = e.target as HTMLImageElement;
+            t.style.display = "none";
+          }}
+        />
+      </div>
     </div>
   );
 }
