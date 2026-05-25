@@ -274,20 +274,34 @@ function addDetectedLabelsFromManifest(
     if (!r.text || !r.text.trim()) continue;
     const bbox = sanitizeBbox(r.bbox, r.text, manifest.imageWidth, manifest.imageHeight);
     const layout = mapPixelBboxToLayout(bbox, manifest.imageWidth, manifest.imageHeight, imgW, imgH, imgX, imgY);
-    // Expand bbox slightly so the white background masks the baked-in raster text fully
-    // (Gemini Vision often returns tight bboxes that don't cover descenders / antialias).
-    const padX = Math.max(2, layout.w * 0.08);
-    const padY = Math.max(1, layout.h * 0.15);
+    // AGGRESSIVE expansion — Gemini Vision bboxes hug glyph centers in a
+    // small (~10-12 pt) box, but the actual rendered raster text in the
+    // image is often 16-32 pt with anti-aliased halos. To fully OBLITERATE
+    // the original baked-in text, we grow the element by ~85% width and
+    // ~110% height, centered on the bbox center (symmetric growth).
+    //
+    // Yes the elements will overlap each other in dense diagrams. That is
+    // the right trade-off — the user sees ONE clean label per region
+    // instead of a duplicate (original-baked + small-edited).
+    const estimatedW = r.text.length * Math.max(10, layout.h * 1.05) * 0.6 + 16;
+    const baseW = Math.max(layout.w, estimatedW);
+    const baseH = Math.max(layout.h, Math.max(10, layout.h * 1.05) * 1.6);
+    const padX = Math.max(36, baseW * 0.85);
+    const padY = Math.max(24, baseH * 1.1);
+    const cx = layout.x + layout.w / 2;
+    const cy = layout.y + layout.h / 2;
+    const finalW = baseW + padX * 2;
+    const finalH = baseH + padY * 2;
     elements.push({
       id: r.id,
       type: "text",
       // NOTE: do NOT set textRole: "label" — that branch in textStyles forces fixed 13px
       // font and wraps text in narrow bboxes. partRole "detected" gives proportional sizing.
       partRole: "detected",
-      x: Math.max(0, layout.x - padX),
-      y: Math.max(0, layout.y - padY),
-      width: layout.w + padX * 2,
-      height: layout.h + padY * 2,
+      x: Math.max(0, cx - finalW / 2),
+      y: Math.max(0, cy - finalH / 2),
+      width: finalW,
+      height: finalH,
       rotation: 0,
       opacity: 1,
       locked: false,

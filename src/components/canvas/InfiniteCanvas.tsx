@@ -449,8 +449,9 @@ export default function InfiniteCanvas() {
           const isSelected = selectedIds.includes(el.id);
           const isEditing = editingId === el.id;
 
-          // OCR-detected labels: width grows to fit text (so "Module 1" doesn't wrap
-          // to "Mod / ule 1" in tight bboxes from Gemini Vision).
+          // OCR-detected labels: use the FULL pre-expanded width from
+          // planToEditor (which is sized to be ~3× the Gemini bbox so the
+          // white background fully covers the baked-in raster text).
           const isDetected = el.type === "text" && el.partRole === "detected";
           return (
             <div
@@ -459,9 +460,8 @@ export default function InfiniteCanvas() {
                 position: "absolute",
                 left: el.x,
                 top: el.y,
-                width: isDetected ? "auto" : el.width,
-                minWidth: isDetected ? el.width : undefined,
-                height: el.type === "text" ? "auto" : el.height,
+                width: el.width,
+                height: isDetected ? el.height : el.type === "text" ? "auto" : el.height,
                 minHeight: el.type === "text" ? el.height : undefined,
                 transform: `rotate(${el.rotation}deg)`,
                 opacity: el.opacity,
@@ -523,25 +523,24 @@ export default function InfiniteCanvas() {
                 <div
                   contentEditable={isEditing}
                   suppressContentEditableWarning
-                  className={isDetected ? "outline-none rounded flex items-center" : "w-full outline-none px-0.5 py-0 rounded"}
+                  className={isDetected ? "outline-none rounded flex items-center justify-center" : "w-full outline-none px-0.5 py-0 rounded"}
                   style={{
                     ...textStyles(el),
                     color: isDetected ? "#111827" : (textStyles(el).color as string),
+                    width: isDetected ? "100%" : undefined,
+                    height: isDetected ? "100%" : undefined,
                     outline: isDetected
                       ? isSelected || isEditing
                         ? "2px solid #6366f1"
-                        : "1px dashed rgba(99,102,241,0.35)"
+                        : "1px dashed rgba(99,102,241,0.25)"
                       : isSelected
                         ? "2px solid #6366f1"
                         : "1px dashed rgba(99,102,241,0.3)",
                     outlineOffset: isDetected ? 0 : 2,
                     minHeight: el.height,
-                    paddingLeft: isDetected ? 3 : undefined,
-                    paddingRight: isDetected ? 3 : undefined,
-                    paddingTop: isDetected ? 1 : undefined,
-                    paddingBottom: isDetected ? 1 : undefined,
                     whiteSpace: isDetected ? "nowrap" : "pre-wrap",
                     wordBreak: isDetected ? "normal" : "break-word",
+                    textAlign: isDetected ? "center" : undefined,
                     background: isDetected
                       ? "#ffffff"
                       : isEditing
@@ -549,7 +548,12 @@ export default function InfiniteCanvas() {
                         : isSelected
                           ? "rgba(99,102,241,0.04)"
                           : "transparent",
-                    boxShadow: isDetected ? "0 0 0 2px #ffffff" : undefined,
+                    // Detected labels get a 3-layer white halo so the original
+                    // baked-in raster text in the AI image underneath is
+                    // fully obliterated even when Gemini's bbox is offset.
+                    boxShadow: isDetected
+                      ? "0 0 0 2px #ffffff, 0 0 0 4px #ffffff, 0 0 8px 6px rgba(255,255,255,0.95)"
+                      : undefined,
                   }}
                   onBlur={(e) => {
                     if (isEditing) finishEditing(el.id, e.currentTarget.textContent || "");
