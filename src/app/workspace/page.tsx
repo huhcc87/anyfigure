@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { toast } from "sonner";
-import StudioSidebar, { MobileAppNav } from "@/components/studio/StudioSidebar";
+import AppSidebar from "@/components/layout/AppSidebar";
 import EditorTopbar from "@/components/editor/EditorTopbar";
 import LeftSidebar, { type SidebarPanel } from "@/components/editor/LeftSidebar";
 import RightSidebar, { type RightTab } from "@/components/editor/RightSidebar";
@@ -299,11 +299,11 @@ export default function WorkspacePage() {
   };
 
   return (
-    <div className="h-screen flex flex-col md:flex-row bg-[#080C1C] overflow-hidden">
-      <StudioSidebar />
+    <div className="h-screen flex flex-col bg-[#080C1C] overflow-hidden">
+      {/* New unified left rail — same one Home / Projects / Library use */}
+      <AppSidebar />
 
-      <div className="flex flex-1 flex-col min-w-0 min-h-0">
-        <MobileAppNav />
+      <div className="flex flex-1 flex-col min-w-0 min-h-0 md:pl-16">
         <EditorTopbar
           onAIGenerate={() => setShowAIModal(true)}
           onExport={() => setShowExportModal(true)}

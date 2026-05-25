@@ -30,10 +30,12 @@ const CATEGORIES = [
 
 const SCENE_SESSION_KEY = "anyfigure_pending_scene";
 
+type GenModel = "vector" | "nano-banana-pro";
+
 export default function HomePage() {
   const router = useRouter();
   const [prompt, setPrompt] = useState("");
-  const [mode, setMode] = useState<"illustration" | "flowchart">("illustration");
+  const [model, setModel] = useState<GenModel>("vector");
   const [generating, setGenerating] = useState(false);
   const [recent, setRecent] = useState<StoredFigure[]>([]);
   const [loadingRecent, setLoadingRecent] = useState(true);
@@ -60,45 +62,100 @@ export default function HomePage() {
     if (!text) { toast.error("Describe what you want to draw"); return; }
     setGenerating(true);
     try {
-      toast.info("Composing vector scene graph…");
-      const res = await fetch("/api/ai/generate-scene", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: text, numPanels: 2, scientificField: "biomedical" }),
-      });
-      const data = (await res.json()) as { scene?: SceneGraph; error?: string };
-      if (!res.ok || !data.scene) {
-        toast.error(data.error || "Generation failed");
+      if (model === "vector") {
+        // ─── PATH A: vector scene graph (editable schematic) ───
+        toast.info("Composing vector scene graph…");
+        const res = await fetch("/api/ai/generate-scene", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt: text, numPanels: 2, scientificField: "biomedical" }),
+        });
+        const data = (await res.json()) as { scene?: SceneGraph; error?: string };
+        if (!res.ok || !data.scene) {
+          toast.error(data.error || "Generation failed");
+          return;
+        }
+        try { sessionStorage.setItem(SCENE_SESSION_KEY, JSON.stringify(data.scene)); }
+        catch { toast.warning("Browser storage is full — scene may not persist"); }
+
+        const id = `vec-${Date.now()}`;
+        const fig: StoredFigure = {
+          id, prompt: text.slice(0, 120),
+          panels: data.scene.elements?.length ?? 0,
+          mode: "vector",
+          timestamp: new Date().toISOString(),
+          editableReady: true,
+        };
+        await saveRecentFigures(pruneRecentFigures([fig, ...recent]));
+        void cacheEditPlan(id, {
+          title: text.slice(0, 80), panels: [],
+          // @ts-expect-error — scene piggy-backed on plan cache
+          sceneGraph: data.scene,
+        });
+        router.push(`/workspace?scene=${encodeURIComponent(id)}`);
         return;
       }
-      try {
-        sessionStorage.setItem(SCENE_SESSION_KEY, JSON.stringify(data.scene));
-      } catch {
-        toast.warning("Browser storage is full — scene may not persist");
-      }
-      const id = `vec-${Date.now()}`;
-      const fig: StoredFigure = {
-        id, prompt: text.slice(0, 120),
-        panels: data.scene.elements?.length ?? 0,
-        mode: "vector",
-        timestamp: new Date().toISOString(),
-        editableReady: true,
-      };
-      const updated = pruneRecentFigures([fig, ...recent]);
-      await saveRecentFigures(updated);
-      void cacheEditPlan(id, {
-        title: text.slice(0, 80), panels: [],
-        // @ts-expect-error — scene piggy-backed on plan cache
-        sceneGraph: data.scene,
+
+      // ─── PATH B: Nano Banana Pro (gemini-3-pro-image-preview raster) ───
+      toast.info("🍌 Nano Banana Pro is composing — this can take 60-150s…");
+      // Step 1: get the panel plan from DeepSeek
+      const planRes = await fetch("/api/ai/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: text, figureType: "schematic", scientificField: "biomedical",
+          journalStyle: "Nature", numPanels: 1,
+        }),
       });
-      router.push(`/workspace?scene=${encodeURIComponent(id)}`);
+      const planData = await planRes.json();
+      if (!planRes.ok || !planData.plan) {
+        toast.error(planData.error || "Plan generation failed");
+        return;
+      }
+      const panel = planData.plan.panels?.[0];
+      if (!panel) {
+        toast.error("Plan returned no panels");
+        return;
+      }
+      // Step 2: render with Gemini 3 Pro Image (Nano Banana Pro)
+      const imgRes = await fetch("/api/ai/generate-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          label: panel.label, description: panel.description,
+          dataContext: panel.dataContext, chartType: panel.chartType,
+          scientificField: "biomedical", aspectRatio: "16:9",
+          style: "flat scientific illustration", inputMode: "enhance",
+        }),
+      });
+      const imgData = await imgRes.json();
+      if (!imgRes.ok || !imgData.url) {
+        toast.error(imgData.error || "Image generation failed");
+        return;
+      }
+      // Save as a raster figure + hand off to workspace
+      const id = `raster-${Date.now()}`;
+      const fullPlan = {
+        ...planData.plan,
+        mode: "image",
+        panels: [{ ...panel, imageUrl: imgData.url }],
+      };
+      const fig: StoredFigure = {
+        id, prompt: text.slice(0, 120), panels: 1,
+        mode: "image",
+        timestamp: new Date().toISOString(),
+        plan: fullPlan, pngUrl: imgData.url, editableReady: false,
+      };
+      await saveRecentFigures(pruneRecentFigures([fig, ...recent]));
+      void cacheEditPlan(id, fullPlan);
+      router.push(`/workspace?figure=${encodeURIComponent(id)}`);
     } catch (err) {
       console.error("[home] generate failed:", err);
       toast.error("Generation failed — check console");
     } finally {
       setGenerating(false);
     }
-  }, [prompt, recent, router]);
+  }, [prompt, model, recent, router]);
 
   const handleDelete = useCallback((id: string) => {
     removeRecentFigure(id);
@@ -133,44 +190,57 @@ export default function HomePage() {
             New · Vector scene-graph engine v2.0 is live
           </div>
           <h1 className="text-5xl md:text-7xl font-bold tracking-tight leading-[1.05] mb-4">
-            Editable science figures,<br />
-            <span className="gradient-text">composed as vectors.</span>
+            Publication-ready<br />
+            <span className="gradient-text">biomedical figures.</span>
           </h1>
           <p className="text-base md:text-lg text-slate-300 max-w-2xl mx-auto leading-relaxed">
-            Type a research idea. We compose a scene graph of proteins, pathways and labels —
-            every primitive born <strong className="text-white">editable, draggable, retypeable</strong>.
-            No raster traps. No OCR guesswork. Built for biomedical teams.
+            Type a research idea. Choose <strong className="text-white">Vector AI</strong> for fully
+            editable schematics or <strong className="text-white">Nano Banana Pro</strong> for rich
+            illustrated raster figures. Built for cancer biologists, genomicists and clinicians.
           </p>
         </div>
 
-        {/* ─── MODE PILL ─── */}
+        {/* ─── MODEL PICKER ─── pick the AI engine that generates your figure */}
         <div className="flex justify-center mb-4">
           <div className="inline-flex glass p-1 rounded-full text-xs font-semibold">
             <button
               type="button"
-              onClick={() => setMode("illustration")}
-              className={`px-4 py-2 rounded-full transition-all ${
-                mode === "illustration"
+              onClick={() => setModel("vector")}
+              className={`px-4 py-2 rounded-full transition-all flex items-center gap-1.5 ${
+                model === "vector"
                   ? "bg-white text-slate-900 shadow-lg"
                   : "text-slate-300 hover:text-white"
               }`}
+              title="Composes a vector scene graph — every shape, label and arrow is independently editable in the canvas."
             >
-              🧬 Scientific illustration
+              <svg className="w-3.5 h-3.5" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <rect x="2" y="2" width="4" height="4" /><rect x="8" y="2" width="4" height="4" />
+                <rect x="2" y="8" width="4" height="4" /><rect x="8" y="8" width="4" height="4" />
+              </svg>
+              Vector AI
+              <span className="ml-0.5 text-[9px] px-1 py-0.5 rounded bg-emerald-500/30 text-emerald-200">editable</span>
             </button>
             <button
               type="button"
-              onClick={() => setMode("flowchart")}
-              className={`px-4 py-2 rounded-full transition-all ${
-                mode === "flowchart"
+              onClick={() => setModel("nano-banana-pro")}
+              className={`px-4 py-2 rounded-full transition-all flex items-center gap-1.5 ${
+                model === "nano-banana-pro"
                   ? "bg-white text-slate-900 shadow-lg"
                   : "text-slate-300 hover:text-white"
               }`}
+              title="Rich illustrated raster figure via Gemini 3 Pro Image. Text labels then become editable via vision-OCR overlay."
             >
-              ⊞ Flowchart
-              <span className="ml-1 text-[9px] px-1 py-0.5 rounded bg-indigo-500/30 text-indigo-200">beta</span>
+              <span className="text-base leading-none">🍌</span>
+              Nano Banana Pro
+              <span className="ml-0.5 text-[9px] px-1 py-0.5 rounded bg-amber-500/30 text-amber-200">raster</span>
             </button>
           </div>
         </div>
+        <p className="text-center text-[11px] text-slate-400 -mt-2 mb-4">
+          {model === "vector"
+            ? "Vector AI → every protein, arrow and label born editable on the canvas."
+            : "Nano Banana Pro → richly illustrated raster figure with editable text overlays."}
+        </p>
 
         {/* ─── GLASS PROMPT BOX ─── */}
         <div className="glass rounded-3xl p-2 md:p-3 mb-6 max-w-3xl mx-auto">

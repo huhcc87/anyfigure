@@ -29,20 +29,19 @@ export default function EditorTopbar({ onExport, onAIGenerate }: EditorTopbarPro
 
   return (
     <header className="h-12 bg-[#0F1629] border-b border-white/10 flex items-center px-3 gap-2 flex-shrink-0 z-20">
-      {/* Logo + app nav */}
-      <Link href="/ai-figure-studio" className="flex items-center gap-1.5 mr-1 flex-shrink-0" title="AnyFigure">
-        <div className="w-6 h-6 rounded-md bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center">
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <circle cx="6" cy="6" r="4" stroke="white" strokeWidth="1.5"/>
-            <path d="M6 4v4M4 6h4" stroke="white" strokeWidth="1.5" strokeLinecap="round"/>
-          </svg>
+      {/* Brand → Home */}
+      <Link href="/" className="flex items-center gap-1.5 mr-2 flex-shrink-0" title="AnyFigure — back to home">
+        <div className="w-6 h-6 rounded-md bg-gradient-to-br from-indigo-500 via-purple-500 to-cyan-400 flex items-center justify-center text-white font-bold text-[10px]">
+          A
         </div>
+        <span className="hidden lg:inline text-[11px] font-semibold text-white">AnyFigure</span>
       </Link>
 
       <div className="hidden lg:flex items-center gap-0.5 mr-1">
         {[
-          { href: "/ai-figure-studio", label: "AI Figure Studio" },
-          { href: "/workspace", label: "Workspace" },
+          { href: "/", label: "Home" },
+          { href: "/projects", label: "Projects" },
+          { href: "/workspace", label: "Editor" },
         ].map((link) => (
           <Link
             key={link.href}
