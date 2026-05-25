@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
 import AppSidebar from "@/components/layout/AppSidebar";
+import SiteHeader from "@/components/layout/SiteHeader";
+import SiteFooter from "@/components/layout/SiteFooter";
 import {
   loadRecentFigures,
   recoverFigureListFromIdb,
@@ -132,18 +134,11 @@ export default function HomePage() {
   );
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white flex flex-col">
+      <SiteHeader />
       <AppSidebar />
 
-      <div className="max-w-5xl mx-auto px-6 pt-8 pb-24 md:pl-24">
-        {/* ─── BRAND ─── */}
-        <div className="flex items-center gap-2 mb-12">
-          <div className="w-7 h-7 rounded-md bg-gradient-to-br from-indigo-600 to-teal-500 flex items-center justify-center text-white font-bold text-sm">
-            A
-          </div>
-          <span className="text-sm font-semibold tracking-tight text-slate-800">AnyFigure</span>
-        </div>
-
+      <div className="flex-1 max-w-5xl mx-auto w-full px-6 pt-12 pb-20 md:pl-24">
         {/* ─── HERO ─── */}
         <div className="text-center mb-10">
           <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-slate-900 mb-3">
@@ -300,6 +295,8 @@ export default function HomePage() {
           )}
         </div>
       </div>
+
+      <SiteFooter />
     </div>
   );
 }
