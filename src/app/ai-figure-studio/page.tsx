@@ -269,7 +269,7 @@ export default function AIFigureStudioPage() {
             enrichProgress: `Gemini: generating panel ${panel.label} (${i + 1}/${panels.length})…`,
           }));
 
-          const result = await fetchPanelEnrichment(endpoint, panel, opts, i, 120000);
+          const result = await fetchPanelEnrichment(endpoint, panel, opts, i, 200000);
           if (result.ok && result.data.url) {
             patchFigure(figId, (f) => {
               if (!f.plan?.panels) return f;

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getPanelScene } from "@/lib/panelScenes";
 import { assemblePanelSVG } from "@/components/figures/assembly/BioAssets";
 
+export const maxDuration = 60;
+
 export async function POST(req: NextRequest) {
   const { label, description, dataContext, chartType, color } = await req.json();
 

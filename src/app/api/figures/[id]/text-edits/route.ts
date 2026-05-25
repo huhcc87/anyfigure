@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { applyTextEdits } from "@/lib/makeEditable/buildEditableAssets";
 import type { TextNodesDocument } from "@/types/editableFigure";
 
+export const maxDuration = 30;
+
 export async function POST(
   req: Request,
   context: { params: Promise<{ id: string }> }

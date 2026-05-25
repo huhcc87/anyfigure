@@ -56,7 +56,7 @@ export async function generateGeminiImage(
   }
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 120000);
+  const timeout = setTimeout(() => controller.abort(), 200000);
 
   try {
     const res = await fetch(

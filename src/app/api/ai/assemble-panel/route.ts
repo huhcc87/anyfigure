@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPanelScene } from "@/lib/panelScenes";
 
+export const maxDuration = 30;
+
 export async function POST(req: NextRequest) {
   const { label, description, dataContext, chartType, color } = await req.json();
 

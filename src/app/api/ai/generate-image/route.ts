@@ -3,7 +3,7 @@ import { generateGeminiImage, parseReferenceImage } from "@/services/ai/geminiIm
 
 import { buildSchematicImagePrompt } from "@/lib/scientificGenerationGuide";
 
-export const maxDuration = 120;
+export const maxDuration = 300;
 
 async function craftImagePrompt(
   label: string,
