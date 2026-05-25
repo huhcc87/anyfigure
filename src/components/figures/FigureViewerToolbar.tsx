@@ -160,6 +160,20 @@ export function FigureViewerToolbar({
 
         <button
           type="button"
+          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold border-2 border-indigo-500 bg-indigo-600 text-white hover:bg-indigo-700 hover:border-indigo-600 transition-colors cursor-pointer shadow-sm"
+          onClick={() => void openEditor(undefined, plan)}
+          title="Open figure in full canvas editor — every label is independently editable, draggable, resizable (FigureLabs-style)"
+        >
+          <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <path d="M9 9h6v6H9z" />
+            <path d="M3 9h6M9 3v6M15 21v-6M21 15h-6" strokeLinecap="round" />
+          </svg>
+          Edit Every Element
+        </button>
+
+        <button
+          type="button"
           className={`${pill} ${textEditActive ? "ring-2 ring-teal-500 border-teal-400 bg-teal-50" : ""}`}
           onClick={() => {
             if (!hasEditableLayer && !textEditActive) {
@@ -167,12 +181,12 @@ export function FigureViewerToolbar({
             }
             onTextEditToggle?.(!textEditActive);
           }}
-          title="Edit text labels in place"
+          title="Quick text edit in place (use 'Edit Every Element' for full canvas editor)"
         >
           <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
             <path d="M4 20h4l10-10-4-4L4 16v4z" strokeLinejoin="round" />
           </svg>
-          Text Edit
+          Quick Text Edit
         </button>
 
         <div className="relative">
