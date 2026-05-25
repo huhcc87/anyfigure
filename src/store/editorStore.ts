@@ -9,6 +9,7 @@ import type {
 import type { FigurePlan } from "@/components/figures/FigureRenderer";
 import type { WorkspaceSnapshot } from "@/lib/figureStore";
 import { importFigurePlan } from "@/lib/planToEditor";
+import { sceneGraphToCanvasElements, type SceneGraph } from "@/lib/sceneGraphToCanvas";
 import { generateId } from "@/lib/utils";
 
 interface EditorStore {
@@ -59,6 +60,9 @@ interface EditorStore {
   toggleAIPanel: () => void;
   reset: () => void;
   loadFromFigurePlan: (plan: FigurePlan) => void;
+  /** Vector-first import: takes an LLM scene-graph JSON and turns every node
+   *  into an editable CanvasElement (no raster image, no OCR pass). */
+  loadFromSceneGraph: (scene: SceneGraph) => void;
   loadWorkspaceSnapshot: (snapshot: WorkspaceSnapshot) => void;
   getWorkspaceSnapshot: () => WorkspaceSnapshot;
 }
@@ -298,6 +302,46 @@ export const useEditorStore = create<EditorStore>()(
           name: g.name,
           visible: g.visible ?? true,
           locked: g.locked ?? false,
+          elements: g.ids,
+        }));
+        state.activeLayerId = state.layers[0]?.id ?? null;
+        state.history = [{ elements: JSON.parse(JSON.stringify(elements)), timestamp: Date.now() }];
+        state.historyIndex = 0;
+      });
+    },
+
+    loadFromSceneGraph: (scene) => {
+      const { elements, canvasWidth, canvasHeight, title } = sceneGraphToCanvasElements(scene);
+      set((state) => {
+        state.elements = elements;
+        state.canvasWidth = canvasWidth;
+        state.canvasHeight = canvasHeight;
+        state.projectName = title.slice(0, 60);
+        state.selectedIds = [];
+        state.zoom = 1;
+        state.panX = 0;
+        state.panY = 0;
+
+        // Group elements into semantic layers for the right-sidebar panel.
+        const groups: { name: string; ids: string[] }[] = [
+          { name: "Title", ids: elements.filter((e) => e.textRole === "title").map((e) => e.id) },
+          { name: "Shapes", ids: elements.filter((e) => e.type === "shape").map((e) => e.id) },
+          { name: "Biomedical", ids: elements.filter((e) => e.type === "biomedical").map((e) => e.id) },
+          { name: "Arrows", ids: elements.filter((e) => e.type === "arrow").map((e) => e.id) },
+          {
+            name: "Labels",
+            ids: elements
+              .filter((e) => e.type === "text" && e.textRole !== "title" && e.textRole !== "legend")
+              .map((e) => e.id),
+          },
+          { name: "Legend", ids: elements.filter((e) => e.textRole === "legend").map((e) => e.id) },
+        ].filter((g) => g.ids.length > 0);
+
+        state.layers = groups.map((g) => ({
+          id: generateId("layer"),
+          name: g.name,
+          visible: true,
+          locked: false,
           elements: g.ids,
         }));
         state.activeLayerId = state.layers[0]?.id ?? null;
