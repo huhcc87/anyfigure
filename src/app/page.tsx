@@ -120,9 +120,16 @@ export default function HomePage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          label: panel.label, description: panel.description, dataContext: panel.dataContext,
-          chartType: panel.chartType, scientificField: "biomedical", aspectRatio: "16:9",
-          style: "flat scientific illustration", inputMode: "enhance",
+          label: panel.label,
+          description: panel.description,
+          dataContext: panel.dataContext,
+          chartType: panel.chartType,
+          scientificField: "biomedical",
+          aspectRatio: "16:9",
+          style: "flat scientific illustration",
+          inputMode: "enhance",
+          userPrompt: text,
+          figureTitle: planData.plan.title,
         }),
       });
       const imgData = await imgRes.json();

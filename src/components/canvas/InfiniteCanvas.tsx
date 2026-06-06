@@ -96,6 +96,8 @@ export default function InfiniteCanvas() {
   const [planLoaded, setPlanLoaded] = useState(false);
   const [activeFigureId, setActiveFigureId] = useState<string | null>(null);
   const centeredRef = useRef(false);
+  const prevElementsLenRef = useRef(0);
+  const prevCanvasSizeRef = useRef({ w: canvasWidth, h: canvasHeight });
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -195,10 +197,26 @@ export default function InfiniteCanvas() {
   }, [canvasWidth, canvasHeight, setZoom, setPan]);
 
   useEffect(() => {
+    const wasEmpty = prevElementsLenRef.current === 0;
+    const nowHasElements = elements.length > 0;
+    const sizeChanged =
+      prevCanvasSizeRef.current.w !== canvasWidth ||
+      prevCanvasSizeRef.current.h !== canvasHeight;
+
+    if ((wasEmpty && nowHasElements) || sizeChanged) {
+      centeredRef.current = false;
+    }
+
+    prevElementsLenRef.current = elements.length;
+    prevCanvasSizeRef.current = { w: canvasWidth, h: canvasHeight };
+  }, [elements.length, canvasWidth, canvasHeight]);
+
+  useEffect(() => {
     if (centeredRef.current) return;
+    if (!planLoaded && elements.length === 0) return;
     centerCanvas();
     centeredRef.current = true;
-  }, [centerCanvas, planLoaded]);
+  }, [centerCanvas, planLoaded, elements.length, canvasWidth, canvasHeight]);
 
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
