@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { formatApiError } from "@/lib/apiErrors";
 import { generateGeminiImage, parseReferenceImage } from "@/services/ai/geminiImage";
 
 import { buildSchematicImagePrompt } from "@/lib/scientificGenerationGuide";
@@ -116,6 +117,9 @@ export async function POST(req: NextRequest) {
     const url = data.data?.[0]?.url;
     return NextResponse.json({ url, label, provider: "openai" });
   } catch (err) {
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    return NextResponse.json(
+      { error: formatApiError(err, "Image generation failed") },
+      { status: 500 }
+    );
   }
 }

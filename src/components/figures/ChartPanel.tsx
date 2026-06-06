@@ -192,8 +192,9 @@ export default function ChartPanel({ variant = "bar", title, color = "#6366F1", 
   }
 
   if (variant === "heatmap") {
-    const genes = ["KRAS","TP53","EGFR","MUC4","PD-L1","CTLA4","MYC","BRCA1"];
-    const samples = ["S1","S2","S3","S4","S5","S6"];
+    const data = heatmapData();
+    const genes = [...new Set(data.map((d) => d.gene))];
+    const samples = [...new Set(data.map((d) => d.sample))];
     return (
       <div className="w-full h-full flex flex-col">
         {title && <p className="text-[10px] font-semibold text-zinc-300 mb-1 px-1">{title}</p>}
@@ -201,11 +202,11 @@ export default function ChartPanel({ variant = "bar", title, color = "#6366F1", 
           <div className="flex gap-0.5 mb-0.5 ml-10">
             {samples.map(s => <div key={s} className="flex-1 text-center text-[7px] text-zinc-500">{s}</div>)}
           </div>
-          {genes.map((gene, gi) => (
+          {genes.map((gene) => (
             <div key={gene} className="flex items-center gap-0.5">
               <div className="w-9 text-right text-[7px] text-zinc-500 pr-1 truncate">{gene}</div>
-              {samples.map((s, si) => {
-                const val = Math.sin(gi * 1.3 + si * 0.9) * 2;
+              {samples.map((s) => {
+                const val = data.find((d) => d.gene === gene && d.sample === s)?.value ?? 0;
                 return (
                   <div
                     key={s}

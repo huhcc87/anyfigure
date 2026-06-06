@@ -157,9 +157,7 @@ export default function AssetLibrary({ onInsert }: AssetLibraryProps) {
       {/* Assets Grid */}
       <div className="flex-1 overflow-y-auto p-2">
         <div className="grid grid-cols-3 gap-1.5">
-          {filtered.map((asset) => {
-            const cat = categories.find((c) => c.id === activeCategory);
-            return (
+          {filtered.map((asset) => (
               <button
                 key={asset.id}
                 onClick={() => onInsert?.(asset.id, asset.name)}
@@ -173,8 +171,7 @@ export default function AssetLibrary({ onInsert }: AssetLibraryProps) {
                   {asset.name}
                 </span>
               </button>
-            );
-          })}
+          ))}
         </div>
         {filtered.length === 0 && (
           <div className="text-center py-8 text-xs text-zinc-600">

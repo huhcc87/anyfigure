@@ -62,9 +62,8 @@ export default function BiomedicalAssetsPanel({ onInsert, onInsertPathway }: Bio
   const [moleculePdb, setMoleculePdb] = useState("4OO8");
   const [panelTab, setPanelTab] = useState("assets");
 
-  void favVersion;
-
   const filtered = useMemo(() => {
+    void favVersion;
     if (category === "favorites") return getFavoriteAssets();
     if (category === "recent") return getRecentAssets();
     return filterBiomedicalAssets(query, category);
@@ -73,11 +72,14 @@ export default function BiomedicalAssetsPanel({ onInsert, onInsertPathway }: Bio
   const visible = useMemo(() => filtered.slice(0, page * PAGE_SIZE), [filtered, page]);
   const hasMore = visible.length < filtered.length;
 
-  const counts = useMemo(() => ({
-    all: getAssetCount(),
-    favorites: getFavoriteIds().length,
-    recent: getRecentAssets().length,
-  }), [favVersion]);
+  const counts = useMemo(() => {
+    void favVersion;
+    return {
+      all: getAssetCount(),
+      favorites: getFavoriteIds().length,
+      recent: getRecentAssets().length,
+    };
+  }, [favVersion]);
 
   const handleAdd = useCallback((asset: BiomedicalAsset) => {
     recordRecentUse(asset.id);

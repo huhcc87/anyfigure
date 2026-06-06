@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { startTransition, useEffect, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import AppSidebar from "@/components/layout/AppSidebar";
@@ -40,7 +40,9 @@ export default function LibraryPage() {
   const [folders, setFolders] = useState<Folder[]>([]);
 
   useEffect(() => {
-    setFolders(loadFolders());
+    startTransition(() => {
+      setFolders(loadFolders());
+    });
   }, []);
 
   const handleCreateFolder = () => {

@@ -1,7 +1,6 @@
 import type { FigurePlan } from "@/components/figures/FigureRenderer";
 import { buildEditableAssets } from "@/lib/makeEditable/buildEditableAssets";
 import { getPanelTextManifest } from "@/lib/makeEditable/imageRegionUtils";
-import { isAiImagePlan } from "@/lib/makeEditable/isAiImagePlan";
 import {
   editableRecordFromAssets,
   getEditableFigure,

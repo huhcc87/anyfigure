@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { formatApiError } from "@/lib/apiErrors";
 
 export const maxDuration = 120;
 
@@ -114,7 +115,10 @@ Emit the scene-graph JSON now.`;
 
     if (!response.ok) {
       const err = await response.text();
-      return NextResponse.json({ error: err }, { status: response.status });
+      return NextResponse.json(
+        { error: formatApiError(err, "Scene generation failed") },
+        { status: response.status }
+      );
     }
 
     const data = await response.json();

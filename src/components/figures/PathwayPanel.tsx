@@ -55,8 +55,8 @@ export default function PathwayPanel({ variant = "signaling", color = "#6366F1",
         {/* DNA */}
         <rect x={60} y={85} width={160} height={14} rx="3" fill="#1E293B" stroke="#334155" strokeWidth="1" />
         <rect x={60} y={101} width={160} height={14} rx="3" fill="#1E293B" stroke="#334155" strokeWidth="1" />
-        <text x={140} y={96} textAnchor="middle" fontSize="8" fill="#64748B">5'————PAM————3'</text>
-        <text x={140} y={112} textAnchor="middle" fontSize="8" fill="#64748B">3'——————————5'</text>
+        <text x={140} y={96} textAnchor="middle" fontSize="8" fill="#64748B">5&apos;————PAM————3&apos;</text>
+        <text x={140} y={112} textAnchor="middle" fontSize="8" fill="#64748B">3&apos;——————————5&apos;</text>
         {/* Cut */}
         <Arrow x1={140} y1={48} x2={140} y2={82} color={color} />
         <line x1={112} y1={90} x2={112} y2={108} stroke="#EF4444" strokeWidth="2" strokeDasharray="2 1" />

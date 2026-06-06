@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { formatApiError } from "@/lib/apiErrors";
 
 export const maxDuration = 30;
 
@@ -44,7 +45,10 @@ export async function POST(req: NextRequest) {
 
     if (!response.ok) {
       const err = await response.text();
-      return NextResponse.json({ error: err }, { status: response.status });
+      return NextResponse.json(
+        { error: formatApiError(err, "Prompt enhancement failed") },
+        { status: response.status }
+      );
     }
 
     const data = await response.json();

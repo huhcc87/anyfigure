@@ -10,7 +10,6 @@ import { EditableLabelsLayer } from "@/components/figures/EditableLabelsLayer";
 import { getPanelTextManifest } from "@/lib/makeEditable/imageRegionUtils";
 import { cacheEditPlan } from "@/lib/figureStore";
 import { getEditableFigure, saveEditableFigure, type EditableFigureRecord } from "@/lib/makeEditable/editableFigureStore";
-import { isAiImagePlan } from "@/lib/makeEditable/isAiImagePlan";
 import { buildEditableRecordSync } from "@/lib/makeEditable/persistEditableAssets";
 import { TEXT_MANIFEST_VERSION } from "@/lib/makeEditable/textManifestConstants";
 import type { TextNodesDocument } from "@/types/editableFigure";
@@ -60,34 +59,36 @@ export function FigureViewerCard({
 }: FigureViewerCardProps) {
   const [textEditActive, setTextEditActive] = useState(false);
   const [detectingLabels, setDetectingLabels] = useState(false);
-  const [pendingEdits, setPendingEdits] = useState<Record<string, string>>({});
-  /** Labels with applied text changes — shown as white overlays after Text Edit closes. */
-  const [appliedEdits, setAppliedEdits] = useState<Record<string, string>>({});
+  const [, setPendingEdits] = useState<Record<string, string>>({});
   const [whiteBackground, setWhiteBackground] = useState(true);
   const [displayPlan, setDisplayPlan] = useState(plan);
+  const [prevPlan, setPrevPlan] = useState(plan);
   const [editable, setEditable] = useState<EditableFigureRecord | null>(null);
   const [previewEl, setPreviewEl] = useState<HTMLDivElement | null>(null);
 
   const onEditableReadyRef = useRef(onEditableReady);
   const editableReadyRef = useRef(editableReady);
-  onEditableReadyRef.current = onEditableReady;
-  editableReadyRef.current = editableReady;
 
   useEffect(() => {
+    onEditableReadyRef.current = onEditableReady;
+    editableReadyRef.current = editableReady;
+  });
+
+  if (plan !== prevPlan) {
+    setPrevPlan(plan);
     setDisplayPlan(plan);
-  }, [plan]);
+  }
 
-  useEffect(() => {
+  /** Labels with applied text changes — shown as white overlays after Text Edit closes. */
+  const appliedEdits = useMemo(() => {
     const fromPlan: Record<string, string> = {};
     for (const p of displayPlan.panels ?? []) {
       for (const r of p.textNodesManifest?.regions ?? []) {
         if (r.userEdited) fromPlan[r.id] = r.text;
       }
     }
-    setAppliedEdits(fromPlan);
+    return fromPlan;
   }, [displayPlan.panels]);
-
-  const aiImage = isAiImagePlan(displayPlan);
   const hasAnyImage = displayPlan.panels?.some((p) => !!p.imageUrl) ?? false;
   const pngUrl = displayPlan.panels?.find((p) => p.imageUrl)?.imageUrl;
   const hasDetectedLabels = displayPlan.panels?.some((p) => (p.textNodesManifest?.regions.length ?? 0) > 0);
@@ -179,7 +180,6 @@ export function FigureViewerCard({
         void cacheEditPlan(figureId, next);
         onPlanUpdate?.(next);
         persistEditable();
-        setAppliedEdits((prev) => ({ ...prev, ...edits }));
         setPendingEdits({});
         return next;
       });

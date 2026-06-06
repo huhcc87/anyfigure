@@ -14,6 +14,7 @@ import { getAssetById } from "@/data/biomedicalAssets";
 import { useEditorStore } from "@/store/editorStore";
 import { loadPlanForWorkspace, clearSessionPlanOnly, cacheEditPlan, loadFigurePlanIdb } from "@/lib/figureStore";
 import type { ChartData } from "@/types";
+import { formatApiError } from "@/lib/apiErrors";
 
 const InfiniteCanvas = dynamic(() => import("@/components/canvas/InfiniteCanvas"), {
   ssr: false,
@@ -81,7 +82,6 @@ export default function WorkspacePage() {
     canvasHeight,
     loadFromFigurePlan,
     loadFromSceneGraph,
-    elements,
   } = useEditorStore();
   const [loadingPlan, setLoadingPlan] = useState(true);
   const [aiPrompt, setAiPrompt] = useState("");
@@ -110,7 +110,7 @@ export default function WorkspacePage() {
       });
       const data = await res.json();
       if (!res.ok || !data.scene) {
-        toast.error(data.error || "Generation failed");
+        toast.error(formatApiError(data.error, "Generation failed"));
         return;
       }
       loadFromSceneGraph(data.scene);
@@ -248,7 +248,7 @@ export default function WorkspacePage() {
       });
       const data = await res.json();
       if (!res.ok || data.status !== "ok") {
-        toast.error(data.error || "Text extraction failed");
+        toast.error(formatApiError(data.error, "Text extraction failed"));
         return;
       }
       const enriched = data.plan;
@@ -550,7 +550,17 @@ export default function WorkspacePage() {
               </span>
             </div>
 
-            <InfiniteCanvas />
+            <div className="relative flex-1 min-h-0">
+              <InfiniteCanvas />
+              {loadingPlan && (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#080C1C]/70 backdrop-blur-[1px]">
+                  <div className="flex items-center gap-2 rounded-lg bg-[#0F1629] border border-white/10 px-4 py-2.5 text-xs text-zinc-300">
+                    <span className="w-3.5 h-3.5 border-2 border-indigo-400/40 border-t-indigo-400 rounded-full animate-spin" />
+                    Loading figure…
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           <RightSidebar

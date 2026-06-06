@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const QUICK_PDB = [
   { id: "4OO8", label: "Cas9" },
@@ -21,7 +21,7 @@ export default function MolecularViewer({ initialPdbId = "4OO8" }: MolecularView
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const loadPdb = async (id: string) => {
+  const loadPdb = useCallback(async (id: string) => {
     if (!containerRef.current) return;
     setLoading(true);
     setError(null);
@@ -45,10 +45,39 @@ export default function MolecularViewer({ initialPdbId = "4OO8" }: MolecularView
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    void loadPdb(pdbId);
+    let cancelled = false;
+    void (async () => {
+      if (!containerRef.current) return;
+      try {
+        const mod = await import("3dmol");
+        if (cancelled) return;
+        setLoading(true);
+        setError(null);
+        const $3Dmol = mod.default ?? mod;
+        if (!viewerRef.current) {
+          viewerRef.current = $3Dmol.createViewer(containerRef.current, {
+            backgroundColor: "#0C1120",
+          });
+        }
+        const viewer = viewerRef.current;
+        viewer.removeAllModels();
+        const url = `https://files.rcsb.org/download/${pdbId.toUpperCase()}.pdb`;
+        viewer.addModel(url, "pdb");
+        viewer.setStyle({}, { cartoon: { color: "spectrum" } });
+        viewer.zoomTo();
+        viewer.render();
+      } catch (err) {
+        if (!cancelled) setError(`Failed to load PDB ${pdbId}: ${String(err)}`);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [pdbId]);
 
   return (

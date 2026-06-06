@@ -16,6 +16,7 @@ import {
   type StoredFigure,
 } from "@/lib/figureStore";
 import type { SceneGraph } from "@/lib/sceneGraphToCanvas";
+import { formatApiError } from "@/lib/apiErrors";
 
 const CATEGORIES = [
   { label: "Oncology",     prompt: "Tumor microenvironment with " },
@@ -78,7 +79,10 @@ export default function HomePage() {
           body: JSON.stringify({ prompt: text, numPanels: 2, scientificField: "biomedical" }),
         });
         const data = (await res.json()) as { scene?: SceneGraph; error?: string };
-        if (!res.ok || !data.scene) { toast.error(data.error || "Generation failed"); return; }
+        if (!res.ok || !data.scene) {
+          toast.error(formatApiError(data.error, "Generation failed"));
+          return;
+        }
         try { sessionStorage.setItem(SCENE_SESSION_KEY, JSON.stringify(data.scene)); }
         catch { toast.warning("Browser storage is full — scene may not persist"); }
         const id = `vec-${Date.now()}`;
@@ -106,7 +110,10 @@ export default function HomePage() {
         }),
       });
       const planData = await planRes.json();
-      if (!planRes.ok || !planData.plan) { toast.error(planData.error || "Plan failed"); return; }
+      if (!planRes.ok || !planData.plan) {
+        toast.error(formatApiError(planData.error, "Figure plan failed"));
+        return;
+      }
       const panel = planData.plan.panels?.[0];
       if (!panel) { toast.error("Plan returned no panels"); return; }
       const imgRes = await fetch("/api/ai/generate-image", {
@@ -119,7 +126,10 @@ export default function HomePage() {
         }),
       });
       const imgData = await imgRes.json();
-      if (!imgRes.ok || !imgData.url) { toast.error(imgData.error || "Image failed"); return; }
+      if (!imgRes.ok || !imgData.url) {
+        toast.error(formatApiError(imgData.error, "Image generation failed"));
+        return;
+      }
       const id = `raster-${Date.now()}`;
       const fullPlan = { ...planData.plan, mode: "image", panels: [{ ...panel, imageUrl: imgData.url }] };
       const fig: StoredFigure = {

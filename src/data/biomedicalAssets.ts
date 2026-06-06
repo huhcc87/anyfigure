@@ -1,4 +1,4 @@
-import type { BiomedicalAsset, BiomedicalAssetCategory, BiomedicalAssetType } from "@/types/biomedicalAssets";
+import type { BiomedicalAsset, BiomedicalAssetCategory } from "@/types/biomedicalAssets";
 
 function slug(name: string): string {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");

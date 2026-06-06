@@ -1,6 +1,4 @@
 import type { FigurePlan, PanelSpec } from "@/components/figures/FigureRenderer";
-import { isAiImagePlan } from "@/lib/makeEditable/isAiImagePlan";
-import { getPanelTextManifest } from "@/lib/makeEditable/imageRegionUtils";
 import { extractTextFromFigureImage } from "@/services/ai/geminiVision";
 import { TEXT_MANIFEST_VERSION } from "@/lib/makeEditable/textManifestConstants";
 

@@ -41,7 +41,7 @@ export default function ProjectsPage() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    let next = q
+    const next = q
       ? list.filter(
           (f) => f.prompt.toLowerCase().includes(q) || f.plan?.title?.toLowerCase().includes(q)
         )

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { formatApiError } from "@/lib/apiErrors";
 
 export const maxDuration = 60;
 
@@ -87,7 +88,10 @@ Return ONLY valid JSON:
 
     if (!response.ok) {
       const err = await response.text();
-      return NextResponse.json({ error: err }, { status: response.status });
+      return NextResponse.json(
+        { error: formatApiError(err, "Figure plan generation failed") },
+        { status: response.status }
+      );
     }
 
     const data = await response.json();

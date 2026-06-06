@@ -1,9 +1,9 @@
 "use client";
 
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { TextNode, TextNodesDocument } from "@/types/editableFigure";
-import type { TextRegionEntry, TextRegionManifest } from "@/types/detectedText";
+import type { TextRegionManifest } from "@/types/detectedText";
 import {
   expandDomMaskRect,
   fitLabelFontSize,
@@ -188,7 +188,10 @@ export const TextEditOverlay = memo(function TextEditOverlay({
     };
   }, [active, domContainer, imageManifests, diagramOnly]);
 
-  const nodes = useDom ? domNodes : (textNodes?.nodes ?? []);
+  const nodes = useMemo(
+    () => (useDom ? domNodes : (textNodes?.nodes ?? [])),
+    [useDom, domNodes, textNodes?.nodes]
+  );
   const displayEdits = { ...committedEdits, ...edits };
   const canvasWidth = useDom ? domContainer?.clientWidth ?? 1 : (textNodes?.canvasWidth ?? 1200);
   const canvasHeight = useDom ? domContainer?.clientHeight ?? 1 : (textNodes?.canvasHeight ?? 900);

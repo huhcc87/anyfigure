@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect, useState } from "react";
+import { useRef, useEffect, useState, startTransition } from "react";
 import dynamic from "next/dynamic";
 import type { FigurePlan } from "@/components/figures/FigureRenderer";
 import { loadPlanFromStorage, clearPlanFromStorage } from "@/lib/figureStore";
@@ -28,16 +28,19 @@ export default function FigureCanvas({
 }: FigureCanvasProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const figureRef = useRef<HTMLDivElement>(null);
-  const [plan, setPlan] = useState<FigurePlan | null>(externalPlan ?? null);
+  const [storedPlan, setStoredPlan] = useState<FigurePlan | null>(null);
 
   useEffect(() => {
-    if (externalPlan) { setPlan(externalPlan); return; }
+    if (externalPlan) return;
     const stored = loadPlanFromStorage();
-    if (stored) {
-      setPlan(stored);
-      clearPlanFromStorage();
-    }
+    if (!stored) return;
+    clearPlanFromStorage();
+    startTransition(() => {
+      setStoredPlan(stored);
+    });
   }, [externalPlan]);
+
+  const plan = externalPlan ?? storedPlan;
 
   const gridStyle = showGrid ? {
     backgroundImage: `

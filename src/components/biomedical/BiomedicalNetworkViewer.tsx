@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { NetworkTemplate } from "@/data/biomedicalNetworkTemplates";
 import { BIOMEDICAL_NETWORK_TEMPLATES } from "@/data/biomedicalNetworkTemplates";
 
 export default function BiomedicalNetworkViewer() {
