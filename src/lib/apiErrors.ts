@@ -42,7 +42,7 @@ function humanizeApiMessage(message: string): string | null {
   const lower = message.toLowerCase();
 
   if (lower.includes("insufficient balance")) {
-    return "API credits exhausted. Top up your DeepSeek account or set OPENAI_API_KEY in .env.local.";
+    return "API credits exhausted on all configured providers. Top up DeepSeek or add OPENAI_API_KEY / GEMINI_API_KEY in .env.local.";
   }
   if (lower.includes("incorrect api key") || lower.includes("invalid api key") || lower.includes("authentication")) {
     return "Invalid API key. Check DEEPSEEK_API_KEY or OPENAI_API_KEY in .env.local.";
@@ -54,7 +54,7 @@ function humanizeApiMessage(message: string): string | null {
     return "Image generation needs GEMINI_API_KEY in .env.local.";
   }
   if (lower.includes("no api key configured")) {
-    return "No AI API key configured. Add DEEPSEEK_API_KEY to .env.local.";
+    return "No AI API key configured. Add DEEPSEEK_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY to .env.local.";
   }
 
   return null;

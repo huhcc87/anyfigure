@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { formatApiError } from "@/lib/apiErrors";
+import { chatCompletion, hasLlmProvider } from "@/lib/llmClient";
 
 export const maxDuration = 120;
 
@@ -73,17 +74,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
   }
 
-  const apiKey = process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY;
-  if (!apiKey) {
+  if (!hasLlmProvider()) {
     return NextResponse.json(
-      { error: "No LLM API key configured. Add DEEPSEEK_API_KEY to .env.local" },
+      { error: "No LLM API key configured. Add DEEPSEEK_API_KEY or OPENAI_API_KEY to .env.local" },
       { status: 400 }
     );
   }
-
-  const isDeepSeek = !!process.env.DEEPSEEK_API_KEY;
-  const baseUrl = isDeepSeek ? "https://api.deepseek.com/v1" : "https://api.openai.com/v1";
-  const model = isDeepSeek ? "deepseek-chat" : "gpt-4o";
 
   const userPrompt = `Field: ${scientificField}
 Journal style: ${journalStyle}
@@ -95,37 +91,15 @@ ${prompt}
 Emit the scene-graph JSON now.`;
 
   try {
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: "system", content: SYSTEM },
-          { role: "user", content: userPrompt },
-        ],
-        response_format: { type: "json_object" },
-        temperature: 0.4,
-        max_tokens: 4000,
-      }),
+    const { content, model } = await chatCompletion({
+      messages: [
+        { role: "system", content: SYSTEM },
+        { role: "user", content: userPrompt },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.4,
+      max_tokens: 4000,
     });
-
-    if (!response.ok) {
-      const err = await response.text();
-      return NextResponse.json(
-        { error: formatApiError(err, "Scene generation failed") },
-        { status: response.status }
-      );
-    }
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) {
-      return NextResponse.json({ error: "Empty LLM response" }, { status: 500 });
-    }
 
     let scene: unknown;
     try {
@@ -139,7 +113,7 @@ Emit the scene-graph JSON now.`;
   } catch (err) {
     console.error("[generate-scene] failed:", err);
     return NextResponse.json(
-      { error: "Scene generation failed", details: String(err) },
+      { error: formatApiError(err, "Scene generation failed") },
       { status: 500 }
     );
   }

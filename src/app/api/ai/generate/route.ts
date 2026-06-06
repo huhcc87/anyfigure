@@ -1,19 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { formatApiError } from "@/lib/apiErrors";
+import { chatCompletion, hasLlmProvider } from "@/lib/llmClient";
 
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
   const { prompt, figureType, scientificField, journalStyle, numPanels } = body;
-
-  const apiKey = process.env.DEEPSEEK_API_KEY || process.env.OPENAI_API_KEY;
-  const isDeepSeek = !!process.env.DEEPSEEK_API_KEY;
-
-  const baseUrl = isDeepSeek
-    ? "https://api.deepseek.com/v1"
-    : "https://api.openai.com/v1";
-  const model = isDeepSeek ? "deepseek-chat" : "gpt-4o";
 
   const systemPrompt = `You are an expert scientific figure designer specializing in biomedical visualizations for high-impact journals. 
 Generate a detailed, structured figure plan as JSON. Be specific about what each panel should show scientifically.`;
@@ -60,42 +53,23 @@ Return ONLY valid JSON:
   ]
 }`;
 
-  if (!apiKey) {
+  if (!hasLlmProvider()) {
     return NextResponse.json(
-      { error: "No API key configured. Add DEEPSEEK_API_KEY to .env.local" },
+      { error: "No API key configured. Add DEEPSEEK_API_KEY or OPENAI_API_KEY to .env.local" },
       { status: 400 }
     );
   }
 
   try {
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        response_format: { type: "json_object" },
-        temperature: 0.7,
-        max_tokens: 2000,
-      }),
+    const { content, model } = await chatCompletion({
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.7,
+      max_tokens: 2000,
     });
-
-    if (!response.ok) {
-      const err = await response.text();
-      return NextResponse.json(
-        { error: formatApiError(err, "Figure plan generation failed") },
-        { status: response.status }
-      );
-    }
-
-    const data = await response.json();
-    const content = data.choices[0].message.content;
     const plan = JSON.parse(content);
     const maxPanels = Math.max(1, Math.min(Number(numPanels) || 1, 6));
     if (Array.isArray(plan.panels) && plan.panels.length > maxPanels) {
@@ -106,7 +80,7 @@ Return ONLY valid JSON:
   } catch (err) {
     console.error("AI generate error:", err);
     return NextResponse.json(
-      { error: "AI generation failed", details: String(err) },
+      { error: formatApiError(err, "Figure plan generation failed") },
       { status: 500 }
     );
   }
