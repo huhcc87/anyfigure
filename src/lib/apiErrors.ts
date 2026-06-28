@@ -45,7 +45,7 @@ function humanizeApiMessage(message: string): string | null {
     return "API credits exhausted on all configured providers. Top up DeepSeek or add OPENAI_API_KEY / GEMINI_API_KEY in .env.local.";
   }
   if (lower.includes("incorrect api key") || lower.includes("invalid api key") || lower.includes("authentication")) {
-    return "Invalid API key. Check DEEPSEEK_API_KEY or OPENAI_API_KEY in .env.local.";
+    return "Invalid API key. Check DEEPSEEK_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY in .env.local.";
   }
   if (lower.includes("rate limit") || lower.includes("too many requests")) {
     return "Rate limit reached. Wait a moment and try again.";

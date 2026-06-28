@@ -21,50 +21,43 @@ export function buildSchematicImagePrompt(opts: {
   const epigenBlock = isEpigenChromatinText(`${description} ${dataContext}`)
     ? `
 Include two comparative schematic panels (NORMAL vs OVEREXPRESSION) separated by a vertical divider.
-Show bivalent chromatin with H3K4me3 (green circles) and H3K27me3 (red circles) epigenetic markers on nucleosomes.
-Show MLL1/COMPASS, EZH2/PRC2, and PD2/hPaf1 protein complexes with regulatory edges (arrows + T-bars).
-Include a PAF1-Y inset call-out box.`
+Show bivalent chromatin with H3K4me3 (green circles) and H3K27me3 (red circles) markers on nucleosomes, clearly labeled.
+Show MLL1/COMPASS, EZH2/PRC2, and PD2/hPaf1 protein complexes with regulatory edges (arrows + T-bars) and labels.`
     : "";
 
-  return `${modePrefix}Scientific Schematic Illustration — VISUAL SHAPES ONLY, NO TEXT WHATSOEVER.
+  return `${modePrefix}Create a publication-ready BIOMEDICAL GRAPHICAL ABSTRACT in the polished BioRender / FigureLabs editorial style.
 
-Goal: Illustrate ${goal} as a central signaling axis. Panel ${label}.
+Topic: ${goal}
 
 ═════════════════════════════════════════════════════════════════
-⛔ CRITICAL RULE — ZERO TEXT IN THE IMAGE ⛔
+LAYOUT — clean multi-panel graphical abstract
 ═════════════════════════════════════════════════════════════════
-You MUST NOT render ANY text, letters, numbers, words, abbreviations,
-panel labels, axis labels, protein names, gene names, captions, titles,
-or annotations of ANY kind in the output image.
+- Organize the figure into 3–5 clearly bounded panels with rounded-corner
+  section headers (colored header bars: teal, indigo, orange, purple).
+- Logical left-to-right narrative flow: inputs/samples → methods/profiling
+  → results → conclusion. Use arrows to connect panels.
+- A bottom conclusion strip summarizing the key takeaway.
 
-NO "Panel A". NO "MLL1/COMPASS". NO "MUC4". NO "H3K4me3". NO "Normal".
-NO "OVEREXPRESSION". NO arrows with text. NO callouts with text.
-NOT EVEN unreadable scribbles that look like text.
+VISUAL STYLE
+- Flat 2D vector medical illustration. Soft modern palette
+  (indigo, teal, coral, purple, slate). Clean, lots of whitespace.
+- Use rich biomedical iconography: human body silhouettes, anatomical
+  organs (colon/tumor), DNA double helix, RNA-seq plots, lab equipment,
+  Venn diagrams, bar charts with error bars, cells, proteins.
+- Rounded panel borders, subtle shadows, professional spacing.
 
-Text will be added as a separate editable layer AFTER generation. If
-you draw any text into the pixels, it creates duplicate labels that
-cannot be removed and ruins downstream editing.
+TEXT — render CLEAN, CORRECTLY SPELLED labels (this is required)
+- Render every gene name, panel title, sample label, and annotation as
+  CRISP, perfectly legible, correctly spelled text. NO typos, NO garbled
+  or distorted letters. Sans-serif font. High contrast (dark slate text).
+- Label panels, axes, genes, conditions, and the conclusion clearly —
+  exactly like a real journal graphical abstract.
 
-INSTEAD, draw ONLY the visual elements: protein blobs, cell shapes,
-membrane lines, DNA/RNA helices, methyl/m6A circle markers, arrows
-(WITHOUT text), T-bar inhibitors, organelle outlines, tissue cross-
-sections. Use color and shape alone to convey identity — the user
-will type protein names into editable overlays themselves.
+BACKGROUND
+- Pure WHITE (#FFFFFF) filling the ENTIRE frame edge-to-edge. NO black
+  bars, NO letterboxing, NO dark borders, NO outer margins.${epigenBlock}
 
-If you cannot generate a figure without text, generate an empty white
-canvas — that is preferable to baked-in labels.
-
-Visual Requirements:
-- Nodes: Use colored blobs / ellipses / molecular shapes for proteins,
-  cells, organelles — but DO NOT WRITE THEIR NAMES inside them.
-- Regulatory Edges: Sharp arrows for activation and T-bars for
-  inhibition. Arrows must NOT carry text labels.
-- Epigenetic Markers: Small high-contrast circles (green for H3K4me3,
-  red for H3K27me3, yellow for m6A) — but DO NOT write "H3K4me3" /
-  "m6A" anywhere; the shape's color carries the identity.
-- Layout: Stark white background, minimal palette, symmetrical.${epigenBlock}
-
-Field: ${scientificField || "biomedical"}. ${style || "Flat 2D vector, Nature journal style."} No watermarks. ABSOLUTELY NO TEXT.`;
+Field: ${scientificField || "biomedical"}. ${style || "Flat 2D vector, BioRender editorial style."} No watermarks. Wide 16:9 landscape composition.`;
 }
 
 export const GENERATION_GUIDE_SECTIONS = [

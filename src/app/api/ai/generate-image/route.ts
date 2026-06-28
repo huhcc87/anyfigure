@@ -39,7 +39,7 @@ async function craftImagePrompt(
         messages: [
           {
             role: "system",
-            content: "Refine this scientific image prompt. Keep signaling axis, regulatory edges, epigenetic markers terminology. Max 700 chars. White background.",
+            content: "Refine this biomedical graphical-abstract image prompt. Keep multi-panel layout, clean correctly-spelled labels, BioRender editorial style, white background. Do NOT remove the requirement for legible labeled text. Max 900 chars.",
           },
           { role: "user", content: base },
         ],
@@ -63,7 +63,15 @@ export async function POST(req: NextRequest) {
   const {
     label, description, dataContext, chartType, scientificField,
     aspectRatio, style, referenceImage, inputMode,
+    userPrompt, figureTitle,
   } = await req.json();
+
+  // Feed the FULL abstract (title + user prompt + panel detail) so Nano
+  // Banana Pro composes a complete multi-panel graphical abstract, the way
+  // FigureLabs does — not just one short panel description.
+  const fullDescription = [figureTitle, userPrompt, description]
+    .filter(Boolean)
+    .join(". ");
 
   const geminiKey = process.env.GEMINI_API_KEY;
   const openaiKey = process.env.OPENAI_API_KEY;
@@ -77,7 +85,7 @@ export async function POST(req: NextRequest) {
 
   const imagePrompt = await craftImagePrompt(
     label,
-    description,
+    fullDescription || description,
     dataContext || "",
     chartType || "diagram",
     scientificField || "biomedical",
@@ -87,17 +95,23 @@ export async function POST(req: NextRequest) {
 
   try {
     if (geminiKey) {
-      const ref = referenceImage ? parseReferenceImage(referenceImage as string) : undefined;
-      const result = await generateGeminiImage(imagePrompt, {
-        aspectRatio: aspectRatio || "16:9",
-        referenceImage: ref,
-      });
-      return NextResponse.json({
-        url: result.url,
-        label,
-        provider: "gemini",
-        model: result.model,
-      });
+      try {
+        const ref = referenceImage ? parseReferenceImage(referenceImage as string) : undefined;
+        const result = await generateGeminiImage(imagePrompt, {
+          aspectRatio: aspectRatio || "16:9",
+          referenceImage: ref,
+        });
+        return NextResponse.json({
+          url: result.url,
+          label,
+          provider: "gemini",
+          model: result.model,
+        });
+      } catch (geminiErr) {
+        console.warn("[generate-image] Gemini failed, trying OpenAI fallback:", geminiErr);
+        if (!openaiKey) throw geminiErr;
+        // fall through to OpenAI
+      }
     }
 
     const res = await fetch("https://api.openai.com/v1/images/generations", {

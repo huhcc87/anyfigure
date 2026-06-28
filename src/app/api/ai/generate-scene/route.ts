@@ -12,7 +12,7 @@ ABSOLUTE RULES:
 - Place all content within margins: x ∈ [40, 1560], y ∈ [60, 940].
 - Every element must have an "id" unique within the figure.
 - Arrows must reference real (x,y) points OR another element's id via "fromId"/"toId" (we resolve endpoints automatically).
-- Use 6–25 elements total. More than 25 is noise; fewer than 6 is empty.
+- Use 16–30 elements total — a real graphical abstract is RICH. Fewer than 14 looks empty.
 - Choose element "type" from EXACTLY this list — anything else is rejected:
     "text" | "shape" | "arrow" | "biomedical"
 - For shape, choose "shapeKind" from: "rect" | "ellipse" | "marker" | "nucleosome"
@@ -57,7 +57,21 @@ DESIGN PRINCIPLES (think before placing):
 - Position arrows along straight or near-straight lines — never overlap a shape.
 - A figure with 2 panels: split the canvas vertically at x ≈ 800 and label "Panel A" / "Panel B" with text textRole:"title" fontSize:16 at y ≈ 80.
 
-Now: read the user's research prompt and emit the JSON scene graph.`;
+GRAPHICAL ABSTRACT LAYOUT (match FigureLabs / BioRender quality):
+- Organize into 3–5 clearly bounded sections that read left-to-right as a
+  narrative: samples/inputs → methods/profiling → results → conclusion.
+- Give each section a COLORED HEADER BAR: a shape rect (height ~32, full
+  section width) filled with a section color (teal #14b8a6, indigo #6366f1,
+  orange #f97316, purple #8b5cf6), with a white text title centered on it.
+- Inside each section place the relevant biomedical assets (use the
+  "biomedical" type generously: bodies, organs, dna-rna, proteins, cells,
+  bacteria) plus labels — every gene/condition gets its own text label.
+- Connect sections with activate arrows showing the flow.
+- Add a bottom CONCLUSION STRIP: a wide light-filled rect spanning the
+  canvas near y ≈ 880 with a one-line takeaway text on top of it.
+- Use a soft modern palette and keep generous whitespace between sections.
+
+Now: read the user's research prompt and emit a RICH scene graph JSON.`;
 
 interface GenerateSceneBody {
   prompt: string;
@@ -98,15 +112,27 @@ Emit the scene-graph JSON now.`;
       ],
       response_format: { type: "json_object" },
       temperature: 0.4,
-      max_tokens: 4000,
+      max_tokens: 16000,
     });
 
     let scene: unknown;
     try {
-      scene = JSON.parse(content);
+      // Repair truncated JSON — find last complete object/array
+      let jsonStr = content.trim();
+      if (!jsonStr.endsWith("}") && !jsonStr.endsWith("]")) {
+        const lastBrace = jsonStr.lastIndexOf("}");
+        const lastBracket = jsonStr.lastIndexOf("]");
+        const cut = Math.max(lastBrace, lastBracket);
+        if (cut > 0) jsonStr = jsonStr.slice(0, cut + 1);
+        // Close any unclosed outer braces
+        const opens = (jsonStr.match(/{/g) || []).length;
+        const closes = (jsonStr.match(/}/g) || []).length;
+        for (let i = 0; i < opens - closes; i++) jsonStr += "}";
+      }
+      scene = JSON.parse(jsonStr);
     } catch (parseErr) {
       console.error("Scene parse error:", parseErr, content.slice(0, 500));
-      return NextResponse.json({ error: "Scene graph was not valid JSON" }, { status: 500 });
+      return NextResponse.json({ error: "Scene graph was not valid JSON — try a shorter prompt" }, { status: 500 });
     }
 
     return NextResponse.json({ scene, model });

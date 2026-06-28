@@ -173,8 +173,9 @@ export async function extractTextFromFigureImage(
   if (!apiKey) throw new Error("GEMINI_API_KEY not set");
 
   // Gemini 2.5 Pro is significantly more accurate at spatial bbox detection
-  // on dense scientific figures than Flash. The cost is worth the accuracy.
-  const model = process.env.GEMINI_TEXT_MODEL || "gemini-2.5-pro";
+  // on dense scientific figures than Flash. Dedicated vision model env so the
+  // text-generation model can be the faster Flash without hurting OCR accuracy.
+  const model = process.env.GEMINI_VISION_MODEL || "gemini-2.5-pro";
 
   let data: string;
   let mimeType: string;

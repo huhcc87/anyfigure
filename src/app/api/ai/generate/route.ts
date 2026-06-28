@@ -68,9 +68,14 @@ Return ONLY valid JSON:
       ],
       response_format: { type: "json_object" },
       temperature: 0.7,
-      max_tokens: 2000,
+      max_tokens: 4000,
     });
-    const plan = JSON.parse(content);
+    let jsonStr = content.trim();
+    if (!jsonStr.endsWith("}")) {
+      const cut = jsonStr.lastIndexOf("}");
+      if (cut > 0) jsonStr = jsonStr.slice(0, cut + 1);
+    }
+    const plan = JSON.parse(jsonStr);
     const maxPanels = Math.max(1, Math.min(Number(numPanels) || 1, 6));
     if (Array.isArray(plan.panels) && plan.panels.length > maxPanels) {
       plan.panels = plan.panels.slice(0, maxPanels);

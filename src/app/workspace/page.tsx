@@ -473,11 +473,11 @@ export default function WorkspacePage() {
                   </div>
                   <div className="min-w-0">
                     <p className="text-xs font-semibold text-slate-900 leading-tight">
-                      Raster image loaded.
+                      Raster figure — make it editable.
                     </p>
                     <p className="text-[11px] text-slate-600 leading-tight">
-                      New images (post May 25) are generated WITHOUT text — add labels with the <strong>T</strong> tool
-                      in the left sidebar, or run OCR on a legacy figure.
+                      Click <strong>Make Text Editable</strong> to detect every label and turn it into an editable
+                      text box. Then <strong>Export → PPTX</strong> gives a clean, editable PowerPoint.
                     </p>
                   </div>
                 </div>
@@ -486,7 +486,7 @@ export default function WorkspacePage() {
                   onClick={() => void handleMakeTextEditable()}
                   disabled={extractingText}
                   className="shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-slate-900 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold cursor-pointer shadow-sm"
-                  title="Use only on legacy figures with baked-in text. New text-free images don't need this."
+                  title="Detect every text label and make it an editable text box, then export an editable PPTX."
                 >
                   {extractingText ? (
                     <>
@@ -498,7 +498,7 @@ export default function WorkspacePage() {
                       <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <path d="M4 20h4l10-10-4-4L4 16v4z" strokeLinejoin="round" />
                       </svg>
-                      OCR legacy figure
+                      Make Text Editable
                     </>
                   )}
                 </button>
@@ -550,7 +550,7 @@ export default function WorkspacePage() {
               </span>
             </div>
 
-            <div className="relative flex-1 min-h-0">
+            <div className="relative flex-1 min-h-0 flex flex-col">
               <InfiniteCanvas />
               {loadingPlan && (
                 <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#080C1C]/70 backdrop-blur-[1px]">

@@ -280,10 +280,18 @@ export async function exportElementsToPptx(
 
   const sorted = [...elements].sort((a, b) => a.zIndex - b.zIndex);
 
-  // Include hidden AI reference so PPT has the full figure; other elements must be visible
-  const exportList = sorted.filter(
-    (e) => e.visible || (e.partRole === "reference" && !!e.content)
-  );
+  // If this is a RASTER figure (a full-figure background image), the image
+  // already has crisp baked-in text from the generator. Overlaying the
+  // OCR-detected labels on top doubles the text and (with imperfect bboxes)
+  // scatters it — so for raster figures we export the clean image + the
+  // structured title/legend only, and DROP the detected overlays. Vector
+  // figures (no background image) keep every element, since those are real
+  // editable primitives, not OCR guesses.
+  const hasRasterFigure = sorted.some((e) => e.type === "image" && e.partRole === "figure");
+  const exportList = sorted.filter((e) => {
+    if (hasRasterFigure && e.partRole === "detected") return false;
+    return e.visible || (e.partRole === "reference" && !!e.content);
+  });
 
   for (const el of exportList) {
     const rect = toSlideRect(el.x, el.y, el.width, el.height, width, height);
@@ -360,6 +368,46 @@ export async function exportElementsToPptx(
           fontSize: 7,
           align: "center",
           color: hexRgb(el.stroke || "6366F1"),
+        });
+      }
+    } else if (el.type === "biomedical" || el.type === "pathway" || el.type === "chart") {
+      // Vector biomedical assets render on-canvas as a rounded box with an
+      // emoji glyph + label. Export the SAME as native PPT objects so the
+      // figure is complete AND every piece stays editable: a rounded rect,
+      // the emoji as text, and the label as a separate editable text box.
+      const f = fillStyle(el.fill || "EEF2FF");
+      slide.addShape(pptx.ShapeType.roundRect, {
+        x: rect.x,
+        y: rect.y,
+        w: rect.w,
+        h: rect.h,
+        fill: { color: f.color, transparency: Math.max(f.transparency, 85) },
+        line: { color: hexRgb(el.stroke || "6366F1"), width: 1 },
+        rectRadius: 0.05,
+      });
+      if (el.assetEmoji) {
+        slide.addText(el.assetEmoji, {
+          x: rect.x,
+          y: rect.y + rect.h * 0.12,
+          w: rect.w,
+          h: rect.h * 0.5,
+          fontSize: Math.min(28, Math.max(12, Math.round(rect.h * 40))),
+          align: "center",
+          valign: "middle",
+        });
+      }
+      const bioLabel = el.label || el.scientificName;
+      if (bioLabel) {
+        slide.addText(bioLabel, {
+          x: rect.x,
+          y: rect.y + rect.h * 0.62,
+          w: rect.w,
+          h: rect.h * 0.32,
+          fontSize: 9,
+          bold: true,
+          align: "center",
+          valign: "middle",
+          color: hexRgb(el.stroke || "374151"),
         });
       }
     }

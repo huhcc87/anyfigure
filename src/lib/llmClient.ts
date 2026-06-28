@@ -101,14 +101,23 @@ async function callOpenAiCompatible(
     }),
   });
 
+  const rawText = await response.text();
+
   if (!response.ok) {
-    const err = await response.text();
-    const failure = new Error(err);
+    const failure = new Error(rawText);
     (failure as Error & { status?: number }).status = response.status;
     throw failure;
   }
 
-  const data = await response.json();
+  // Some providers (DeepSeek) return HTTP 200 with error payload
+  const lower = rawText.toLowerCase();
+  if (lower.includes("insufficient balance") || lower.includes("invalid_error_error") || lower.includes("unknown_error")) {
+    const failure = new Error(rawText);
+    (failure as Error & { status?: number }).status = 402;
+    throw failure;
+  }
+
+  const data = JSON.parse(rawText);
   const content = data.choices?.[0]?.message?.content?.trim();
   if (!content) throw new Error("Empty LLM response");
   return content;
@@ -136,7 +145,7 @@ async function callGemini(provider: GeminiProvider, opts: ChatCompletionOptions)
         contents: conversation,
         generationConfig: {
           temperature: opts.temperature ?? 0.7,
-          maxOutputTokens: opts.max_tokens ?? 2000,
+          maxOutputTokens: opts.max_tokens ?? 8000,
           ...(opts.response_format ? { responseMimeType: "application/json" } : {}),
         },
       }),
@@ -186,9 +195,10 @@ export async function chatCompletion(opts: ChatCompletionOptions): Promise<ChatC
       const message = err instanceof Error ? err.message : String(err);
       lastError = message;
       if (hasFallback && isRetryableLlmError(status, message)) {
-        console.warn(`[llm] ${provider.name} failed (${status}), trying fallback`);
+        console.warn(`[llm] ${provider.name} failed (${status}): ${message.slice(0, 200)}, trying fallback`);
         continue;
       }
+      console.error(`[llm] ${provider.name} failed (${status}): ${message.slice(0, 300)}`);
       throw new Error(formatApiError(message, "LLM request failed"));
     }
   }
