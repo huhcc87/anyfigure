@@ -42,6 +42,7 @@ export default function EditorTopbar({ onExport, onAIGenerate }: EditorTopbarPro
           { href: "/", label: "Home" },
           { href: "/projects", label: "Projects" },
           { href: "/workspace", label: "Editor" },
+          { href: "/editable-figure", label: "Editable Builder" },
         ].map((link) => (
           <Link
             key={link.href}

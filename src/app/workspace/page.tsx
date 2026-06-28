@@ -27,7 +27,7 @@ const InfiniteCanvas = dynamic(() => import("@/components/canvas/InfiniteCanvas"
 
 const BiomedicalAssetsPanel = dynamic(() => import("@/components/biomedical/BiomedicalAssetsPanel"), { ssr: false });
 
-type ExportFormat = "png" | "jpg" | "svg" | "pdf" | "pptx";
+type ExportFormat = "png" | "jpg" | "svg" | "pdf" | "pptx" | "json";
 
 const CHART_PRESETS: { name: string; data: ChartData }[] = [
   {
@@ -372,9 +372,15 @@ export default function WorkspacePage() {
         const url = await exportElementsToJpeg(elements, w, h, scale);
         saveAs(url, "anyfigure-export.jpg");
       } else if (fmt === "svg") {
-        const png = await exportElementsToPng(elements, w, h, scale);
-        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><image href="${png}" width="${w}" height="${h}"/></svg>`;
-        saveAs(new Blob([svg], { type: "image/svg+xml" }), "anyfigure-export.svg");
+        // True layered SVG — each element gets its own SVG primitive
+        const { downloadEditableSvg } = await import("@/lib/export/exportSvg");
+        downloadEditableSvg(elements, w, h, "anyfigure-editable.svg");
+      } else if (fmt === "json") {
+        const { canvasElementsToScene } = await import("@/lib/import/importJson");
+        const { downloadSceneJson } = await import("@/lib/export/exportJson");
+        const { projectName: pn } = useEditorStore.getState();
+        const scene = canvasElementsToScene(elements, w, h, pn);
+        downloadSceneJson(scene, "anyfigure-project.json");
       } else if (fmt === "pdf") {
         const bytes = await exportElementsToPdf(elements, w, h, scale);
         saveAs(new Blob([bytes.buffer as ArrayBuffer], { type: "application/pdf" }), "anyfigure-export.pdf");
@@ -605,11 +611,11 @@ export default function WorkspacePage() {
             <div className="space-y-4">
               <div>
                 <label className="text-xs text-zinc-500 block mb-2 uppercase tracking-wide font-semibold">Format</label>
-                <div className="grid grid-cols-5 gap-2">
-                  {(["png", "jpg", "svg", "pdf", "pptx"] as ExportFormat[]).map((f) => (
+                <div className="grid grid-cols-3 gap-2">
+                  {(["png", "jpg", "svg", "pdf", "pptx", "json"] as ExportFormat[]).map((f) => (
                     <button key={f} type="button" onClick={() => setExportFormat(f)}
                       className={`py-2.5 rounded-xl text-xs font-bold uppercase transition-all ${exportFormat === f ? "bg-indigo-500/20 text-indigo-300 border-2 border-indigo-500/50" : "bg-white/5 text-zinc-400 border border-white/10 hover:bg-white/10"}`}>
-                      {f}
+                      {f === "json" ? "JSON" : f.toUpperCase()}
                     </button>
                   ))}
                 </div>
@@ -637,7 +643,22 @@ export default function WorkspacePage() {
               </button>
               {exportFormat === "pptx" && (
                 <p className="text-[11px] text-indigo-300/80 bg-indigo-500/10 border border-indigo-500/20 rounded-lg px-3 py-2">
-                  PPTX exports separate text boxes, shapes, and images — editable in PowerPoint.
+                  ✅ Editable PPTX — every text box, shape, arrow, and panel is a native PowerPoint object, not a flat image.
+                </p>
+              )}
+              {exportFormat === "svg" && (
+                <p className="text-[11px] text-emerald-300/80 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-2">
+                  ✅ Layered SVG — each element has a unique id and is editable in Illustrator, Inkscape, or Figma.
+                </p>
+              )}
+              {exportFormat === "json" && (
+                <p className="text-[11px] text-amber-300/80 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                  ✅ AnyFigure project JSON — save and reopen your figure with all objects, styles, and metadata preserved.
+                </p>
+              )}
+              {(exportFormat === "png" || exportFormat === "jpg") && (
+                <p className="text-[11px] text-zinc-400 bg-white/5 border border-white/10 rounded-lg px-3 py-2">
+                  ⚠️ PNG/JPG is a flat raster preview only — not editable. Use PPTX or SVG for editable output.
                 </p>
               )}
               {exportError && (
